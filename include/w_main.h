@@ -3,6 +3,16 @@
 
 #include "../../main/include/my_types.h"
 #include "freertos/FreeRTOS.h"
+#include "esp_event.h"
+
+extern esp_event_loop_handle_t W_event_loop;
+
+// ========================= Константы и настройки ==========================
+
+/**
+ * @brief Максимальное количество логических каналов
+ */
+#define RDT_MAX_CHANNELS        4
 
 // ========================= Структуры данных ==========================
 
@@ -64,6 +74,23 @@ void Rdt_FreeReceivedBlock(rdt_block_item_t *block_item);
  * @param[in] peer_mac Указатель на MAC (6 байт)
  */
 void Rdt_AddPeer(const uint8_t *peer_mac);
+
+
+
+enum 
+{
+    CON_NOT_PAIRED = 0,
+    CON_PAIRED,
+    CON_CONNECTED,
+    CON_DISCONNECTED
+};
+
+typedef enum {
+    EVENT_TYPE_1,
+    EVENT_TYPE_2,
+    EVENT_TYPE_3,
+    EVENT_TYPE_4
+} my_event_t;
 
 
 

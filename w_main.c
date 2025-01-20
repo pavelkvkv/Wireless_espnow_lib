@@ -9,7 +9,7 @@
  * @date 2025-01-18
  */
 
-#include "w_main.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -18,18 +18,20 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
-#include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_now.h"
 #include "esp_crc.h"
 #include "esp_system.h"
+#include <esp_event.h>
+#include "w_main.h"
+#include "wireless_port.h"
+
+
+ESP_EVENT_DEFINE_BASE(WIRELESS_EVENT_BASE);
 
 // ========================= Константы и настройки ==========================
 
-/**
- * @brief Максимальное количество логических каналов
- */
-#define RDT_MAX_CHANNELS        4
+
 
 /**
  * @brief Размер полезной нагрузки каждого пакета, байт
@@ -133,6 +135,7 @@ typedef struct
 // ========================= Глобальные/статические переменные ==========================
 
 static const char *TAG = "rdt";
+#include "../../main/include/log.h"
 
 /**
  * @brief Массив логических каналов
@@ -170,6 +173,7 @@ typedef struct
 static QueueHandle_t s_rdt_event_queue = NULL;
 static TaskHandle_t  s_rdt_task_handle = NULL;
 static u8            s_peer_macaddr[6] = {0};
+esp_event_loop_handle_t W_event_loop = NULL;
 
 // ========================= Прототипы статических функций ==========================
 
@@ -243,7 +247,7 @@ static void rdt_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *dat
     if (xQueueSendFromISR(s_rdt_event_queue, &msg, NULL) != pdTRUE)
     {
         // Если очередь переполнена, обработка будет пропущена
-        ESP_LOGW(TAG, "Event queue full, packet dropped");
+        logW("Event queue full, packet dropped");
     }
 }
 
@@ -448,6 +452,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             completed_block.data_ptr  = rx->rx_buffer;
             completed_block.data_size = rx->total_size;
             xQueueSend(ch->rx_queue, &completed_block, 0);
+            esp_event_post_to(W_event_loop, WIRELESS_EVENT_BASE, channel_idx, NULL, 0, 0);
             // Обнуляем
             rx->rx_buffer          = NULL;
             rx->packet_received_map = NULL;
@@ -468,7 +473,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             free(tx->tx_buffer);
             tx->tx_buffer       = NULL;
             tx->sending         = false;
-            ESP_LOGI(TAG, "Channel %d: block transmitted successfully", channel_idx);
+            logI("Channel %d: block transmitted successfully", channel_idx);
         }
         break;
     }
@@ -575,7 +580,7 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
             if (tx->retry_count >= RDT_MAX_RETRY_COUNT)
             {
                 // Сдаёмся — сбрасываем передачу
-                ESP_LOGW(TAG, "Channel %d: block send failed after max retries", channel_idx);
+                logW("Channel %d: block send failed after max retries", channel_idx);
                 free(tx->packet_sent_map);
                 tx->packet_sent_map = NULL;
                 free(tx->tx_buffer);
@@ -622,7 +627,7 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
 static void rdt_restart_tx_block(uint8_t channel_idx)
 {
     rdt_channel_tx_t *tx = &s_channels[channel_idx].tx_ctrl;
-    ESP_LOGW(TAG, "Channel %d: re-send entire block", channel_idx);
+    logW("Channel %d: re-send entire block", channel_idx);
     memset(tx->packet_sent_map, 0, tx->total_packets * sizeof(bool));
     tx->next_seq_to_send = 0;
     // Отправим begin
@@ -680,6 +685,18 @@ static void rdt_send_nack_for_missing(uint8_t channel_idx, const uint8_t *dst_ma
  */
 int Wireless_Init(void)
 {
+    esp_event_loop_args_t loop_args = 
+    {
+        .queue_size = 10,
+        .task_name = "event_loop_task", // Таск будет создан для обработки событий
+        .task_priority = uxTaskPriorityGet(NULL),
+        .task_stack_size = 4096,
+        .task_core_id = tskNO_AFFINITY
+    };
+
+    // Создание Event Loop
+    ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &W_event_loop));
+
     // Здесь оставляем ту логику, что была, или меняем под себя
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -727,7 +744,7 @@ int Wireless_Init(void)
         Rdt_AddPeer(s_peer_macaddr);
     }
 
-    ESP_LOGI(TAG, "ESP-NOW и RDT инициализированы");
+    logI("ESP-NOW и RDT инициализированы");
     return ESP_OK;
 }
 
@@ -781,6 +798,7 @@ int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *u
     if (xQueueSend(ch->tx_queue, &item, 0) != pdTRUE)
     {
         // Очередь заполнена
+        logE("queue full");
         return 1;
     }
     return 0;
