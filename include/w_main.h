@@ -1,32 +1,70 @@
 #ifndef W_MAIN_H
 #define W_MAIN_H
 
-#define IPADDR_HOST_AP "192.168.109.1"
-#define IPADDR_HOST_STA "192.168.109.2"
+#include "../../main/include/my_types.h"
+#include "freertos/FreeRTOS.h"
 
-enum
+// ========================= Структуры данных ==========================
+
+/**
+ * @brief Элемент очереди для отправки/приёма целого блока
+ */
+typedef struct
 {
-    PORT_SENSORS =  1000,   // Рассылка данных с датчиков
-    PORT_PAIRING =  1001,   // Запрос-ответ для привязки
-    PORT_PARAMS =   1002,   // Запрос-ответ параметров
-    PORT_FILES =    1003,   // Запрос-ответ с передачей файлов
-    PORT_STATUSES = 1004,   // Рассылка статусов
-};
+    uint8_t *data_ptr;            ///< Указатель на массив данных (блок)
+    size_t   data_size;           ///< Размер всего блока данных
+    void    *user_ctx;            ///< Пользовательский контекст (необязательное поле)
+} rdt_block_item_t;
 
-enum 
-{
-    //WIRELESS_NOT_PAIRED =   (1 << 0),
-    WIRELESS_PAIRED =               (1 << 1),
-    WIRELESS_CONNECTED =            (1 << 2),
-    WIRELESS_PAIRING_IN_PROCESS =   (1 << 3),
-    WIRELESS_PAIR_FAILED =          (1 << 4),
-};
+// ========================= Публичные функции ==========================
+
+/**
+ * @brief Инициализация ESP-NOW и RDT
+ * @return ESP_OK или ESP_FAIL
+ */
+int Wireless_Init(void);
+
+/**
+ * @brief Регистрация/создание очередей для одного логического канала
+ * @param[in] channel Номер канала (0..RDT_MAX_CHANNELS-1)
+ * @param[in] rx_queue_len Длина очереди приёма в элементах
+ * @param[in] tx_queue_len Длина очереди передачи в элементах
+ * @param[in] max_block_size Максимальный размер блока данных (в байтах)
+ * @return 0 - OK, 1 - ошибка
+ */
+int Rdt_ChannelInit(uint8_t channel, uint8_t rx_queue_len, uint8_t tx_queue_len, size_t max_block_size);
+
+/**
+ * @brief Добавить блок (указатель на данные) на отправку
+ * @param[in] channel Номер канала
+ * @param[in] data_ptr Указатель на блок данных
+ * @param[in] size Размер блока данных
+ * @param[in] user_ctx Пользовательский контекст (необязательно)
+ * @return 0 - OK, 1 - ошибка
+ */
+int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *user_ctx);
+
+/**
+ * @brief Получить готовый принятый блок из rx-очереди (если есть)
+ * @param[in]  channel Номер канала
+ * @param[out] block_item Указатель на структуру для приёма результата
+ * @param[in]  wait_ticks Время ожидания (в тиках)
+ * @return true, если блок получен, false - если таймаут
+ */
+bool Rdt_ReceiveBlock(uint8_t channel, rdt_block_item_t *block_item, TickType_t wait_ticks);
+
+/**
+ * @brief Освободить принятый блок, если библиотека выделяла память
+ * @param[in] block_item Блок, полученный через Rdt_ReceiveBlock
+ */
+void Rdt_FreeReceivedBlock(rdt_block_item_t *block_item);
+
+/**
+ * @brief Зарегистрировать peer по MAC (если не использовать широковещание)
+ * @param[in] peer_mac Указатель на MAC (6 байт)
+ */
+void Rdt_AddPeer(const uint8_t *peer_mac);
 
 
-
-void Wireless_Init();
-void Wireless_Update_Config();
-int Wireless_Connect_Status_Get();
-void Wireless_Pairing_Begin();
 
 #endif // W_MAIN_H  
