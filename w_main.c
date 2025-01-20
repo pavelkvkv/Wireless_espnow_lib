@@ -27,7 +27,8 @@
 #include "wireless_port.h"
 
 
-ESP_EVENT_DEFINE_BASE(WIRELESS_EVENT_BASE);
+//ESP_EVENT_DEFINE_BASE(WIRELESS_EVENT_BASE);
+esp_event_base_t const WIRELESS_EVENT_BASE = "WIRELESS_EVENT_BASE";
 
 // ========================= Константы и настройки ==========================
 

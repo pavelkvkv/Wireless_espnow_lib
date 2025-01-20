@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "esp_event.h"
 
+extern esp_event_base_t const WIRELESS_EVENT_BASE;
 extern esp_event_loop_handle_t W_event_loop;
 
 // ========================= Константы и настройки ==========================

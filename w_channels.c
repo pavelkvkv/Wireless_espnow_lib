@@ -12,7 +12,7 @@
 #define TAG "w_channels"
 #include "../../main/include/log.h"
 
-ESP_EVENT_DEFINE_BASE(WIRELESS_EVENT_BASE);
+//ESP_EVENT_DEFINE_BASE(WIRELESS_EVENT_BASE);
 
 // Список callbacks
 //static void (*Wireless_Channel_Receive_Callbacks[RDT_MAX_CHANNELS])();

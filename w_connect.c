@@ -10,7 +10,10 @@
 #include "w_user.h"
 #include "wireless_port.h"
 #include "esp_event.h"
-#include "wsp_system.h"
+#include "esp_mac.h"
+
+#define TAG "w_connect"
+#include "../../main/include/log.h"
 
 static void wireless_pairing_receive_cb(void *handler_arg, esp_event_base_t base, int32_t id, void *event_data);
 static void wireless_pairing_task(void *arg);
@@ -71,7 +74,7 @@ static void wireless_pairing_receive_cb(void *handler_arg, esp_event_base_t base
 {
     if (id != W_CHAN_SYSTEM)
     {
-        logE("Invalid event ID: %d", id);
+        logE("Invalid event ID: %"PRId32"", id);
         return;
     }
 
