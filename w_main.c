@@ -858,3 +858,32 @@ void Rdt_AddPeer(const uint8_t *peer_mac)
     memcpy(s_peer_macaddr, peer_mac, ESP_NOW_ETH_ALEN);
 }
 
+/**
+ * @brief Clear all messages in the queue for the specified channel.
+ *
+ * @param channel The channel whose queue will be cleared.
+ */
+void Wireless_Channel_Clear_Queue(int channel)
+{
+	if (channel < 0 || channel >= RDT_MAX_CHANNELS)
+	{
+		logE("Invalid channel: %d", channel);
+		return;
+	}
+	rdt_channel_t *ch = &s_channels[channel];
+
+	if (ch->rx_queue != NULL)
+	{
+		rdt_block_item_t msg;
+		while (xQueueReceive(ch->rx_queue, &msg, 0) == pdTRUE)
+		{
+			// Discard the message (just dequeue it)
+            Rdt_FreeReceivedBlock(&msg);
+		}
+	}
+	else
+	{
+		logW("Channel %d has no rx queue", channel);
+	}
+	logI("Cleared queue for channel %d", channel);
+}

@@ -76,7 +76,7 @@ void Rdt_FreeReceivedBlock(rdt_block_item_t *block_item);
  */
 void Rdt_AddPeer(const uint8_t *peer_mac);
 
-
+void Wireless_Channel_Clear_Queue(int channel);
 
 enum 
 {

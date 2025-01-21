@@ -55,6 +55,8 @@ void Wireless_Channel_Receive_Callback_Register(esp_event_handler_t cb, int chan
         logE("Callback is NULL for channel: %d", channel);
         return;
     }
+    
+    Wireless_Channel_Clear_Queue(channel);
 
     esp_err_t err = esp_event_handler_register(WIRELESS_EVENT_BASE, channel, cb, NULL);
     if (err == ESP_OK)
