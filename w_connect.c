@@ -57,9 +57,11 @@ static void wireless_pairing_task(void *arg)
 
     while ((xTaskGetTickCount() - begin) < timeout)
     {
-        Rdt_SendBlock(W_CHAN_SYSTEM, my_mac, 6, NULL);
+        uint8_t * my_mac_loc = calloc(6, sizeof(uint8_t));
+        memcpy(my_mac_loc, my_mac, 6);
+        Rdt_SendBlock(W_CHAN_SYSTEM, my_mac_loc, 6, NULL);
         logI("Broadcasting pairing request...");
-        vTaskDelay(pdMS_TO_TICKS(500)); // Отправлять каждые 500 мс
+        vTaskDelay(pdMS_TO_TICKS(1000)); 
 
         // Проверяем статус привязки
         if (Wireless_Pairing_Status_Get() == CON_PAIRED)
@@ -117,4 +119,6 @@ static void wireless_pairing_receive_cb(void *handler_arg, esp_event_base_t base
 
     // Сохраняем привязанный MAC-адрес
     S_MC_Set_Paired_Display_id(peer);
+
+    Rdt_AddPeer(peer);
 }

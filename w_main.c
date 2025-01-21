@@ -22,7 +22,8 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 #include "esp_system.h"
-#include <esp_event.h>
+#include "esp_event.h"
+#include "esp_timer.h"
 #include "w_main.h"
 #include "wireless_port.h"
 
@@ -779,7 +780,7 @@ int Rdt_ChannelInit(uint8_t channel, uint8_t rx_queue_len, uint8_t tx_queue_len,
 /**
  * @brief Добавить блок (указатель на данные) на отправку
  * @param[in] channel Номер канала
- * @param[in] data_ptr Указатель на блок данных
+ * @param[in] data_ptr Указатель на блок данных (будет автомпатически освобождаться)
  * @param[in] size Размер блока данных
  * @param[in] user_ctx Пользовательский контекст (необязательно)
  * @return 0 - OK, 1 - ошибка
