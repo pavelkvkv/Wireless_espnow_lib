@@ -453,6 +453,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             memset(&completed_block, 0, sizeof(completed_block));
             completed_block.data_ptr  = rx->rx_buffer;
             completed_block.data_size = rx->total_size;
+            logI("Recv block %d bytes from channel %d", completed_block.data_size, channel_idx);
             xQueueSend(ch->rx_queue, &completed_block, 0);
             esp_event_post_to(W_event_loop, WIRELESS_EVENT_BASE, channel_idx, NULL, 0, 0);
             // Обнуляем

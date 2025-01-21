@@ -58,7 +58,7 @@ void Wireless_Channel_Receive_Callback_Register(esp_event_handler_t cb, int chan
     
     Wireless_Channel_Clear_Queue(channel);
 
-    esp_err_t err = esp_event_handler_register(WIRELESS_EVENT_BASE, channel, cb, NULL);
+    esp_err_t err = esp_event_handler_register_with(W_event_loop, WIRELESS_EVENT_BASE, channel, cb, NULL);
     if (err == ESP_OK)
     {
         logI("Callback registered for channel %d", channel);
@@ -77,3 +77,29 @@ void Wireless_Channel_Receive_Callback_Register(esp_event_handler_t cb, int chan
     }
 }
 
+void Wireless_Channel_Receive_Callback_Unregister(esp_event_handler_t cb, int channel)
+{
+    if (channel < 0 || channel >= RDT_MAX_CHANNELS)
+    {
+        logE("Invalid channel: %d", channel);
+        return;
+    }
+    
+    esp_err_t err = esp_event_handler_unregister_with(W_event_loop, WIRELESS_EVENT_BASE, channel, cb);
+    if (err == ESP_OK)
+    {
+        logI("Callback unregistered for channel %d", channel);
+    }
+    else if (err == ESP_ERR_INVALID_ARG)
+    {
+        logE("Invalid arguments for event handler unregistration");
+    }
+    else if (err == ESP_ERR_NOT_FOUND)
+    {
+        logE("Callback not found for channel %d", channel);
+    }
+    else
+    {
+        logE("Unknown error: %d", err);
+    }
+}
