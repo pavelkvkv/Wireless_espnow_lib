@@ -18,9 +18,12 @@
 static void wireless_pairing_receive_cb(void *handler_arg, esp_event_base_t base, int32_t id, void *event_data);
 static void wireless_pairing_task(void *arg);
 
+static bool pairing_active = false;
+
 /** @brief Получить статус привязки */
 int Wireless_Pairing_Status_Get(void) 
 {
+    if(pairing_active) return CON_PAIRING_ACTIVE;
     uint8_t peer[6] = {0};
     S_MC_Get_Paired_Display_id(peer);
     if (peer[0] == 0) 
@@ -33,6 +36,7 @@ int Wireless_Pairing_Status_Get(void)
 /** @brief Начало привязки */
 void Wireless_Pairing_Begin(void)
 {
+    pairing_active = true;
     uint8_t peer[6] = {0};
     S_MC_Set_Paired_Display_id(peer); // Очистить сохранённый MAC
     Wireless_Channel_Receive_Callback_Register(wireless_pairing_receive_cb, W_CHAN_SYSTEM);
@@ -61,11 +65,13 @@ static void wireless_pairing_task(void *arg)
         if (Wireless_Pairing_Status_Get() == CON_PAIRED)
         {
             logI("Pairing successful");
+            pairing_active = false;
             vTaskDelete(NULL); // Завершаем задачу
         }
     }
 
     logW("Pairing task timed out");
+    pairing_active = false;
     vTaskDelete(NULL); // Тайм-аут, завершаем задачу
 }
 
