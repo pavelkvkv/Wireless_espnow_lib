@@ -26,23 +26,23 @@ enum
 
 enum
 {
-    W_MSG_TYPE_SYSTEM_PAIRING_MAC   = 1,
-    W_MSG_TYPE_SYSTEM_PAIRING_DONE  = 2,
+    /* Системные сообщения */
+    W_MSG_TYPE_SYSTEM_PAIRING_MAC   = 1,    // Начальное сообщение привязки
+    W_MSG_TYPE_SYSTEM_PAIRING_DONE  = 2,    // Завершение привязки
 
-    W_MSG_TYPE_SENSORS_IO       = 10,
-    W_MSG_TYPE_SENSORS_RELAY    = 11,
-    W_MSG_TYPE_SENSORS_THERMO   = 12,
+    /* Рассылка сенсоров */
+    W_MSG_TYPE_SENSORS_IO       = 10,       // Рассылка данных сухих контактов
+    W_MSG_TYPE_SENSORS_RELAY    = 11,       // Рассылка данных реле
+    W_MSG_TYPE_SENSORS_THERMO   = 12,       // Рассылка данных термометров
 
-    W_MSG_TYPE_PARAM_TIME       = 20,
-    W_MSG_TYPE_PARAM_MC_CONFIG  = 21,
-    //W_MSG_TYPE_PARAM_MC_TITLES  = 22,
+    /* Чтение-запись параметров */
+    W_MSG_TYPE_PARAM_TIME       = 20,           // Время (time_t)
+    W_MSG_TYPE_PARAM_MC_CONFIG  = 21,           // Конфигурация МС (StructMC_Config_t)
+    W_MSG_TYPE_PARAM_MC_TITLES_IO  = 22,        // Названия контактов
+    W_MSG_TYPE_PARAM_MC_TITLES_RELAY  = 23,     // Названия реле
+    W_MSG_TYPE_PARAM_MC_TITLES_THERMO  = 24,    // Названия термометров
 };
 
-enum 
-{
-    W_PARAM_GET = 0,
-    W_PARAM_SET = 1
-};
 
 typedef struct
 {
@@ -54,15 +54,9 @@ typedef struct
 typedef struct
 {
     u8 message_type;
-    u8 data[0];
+    u8 data[];
 } w_header_sensors_t;
 
-typedef struct
-{
-    u8 message_type;
-    u8 set_or_get;
-    u8 data[0];
-} w_header_param_t;
 
 
 void Wireless_Channels_Init(void);
@@ -70,5 +64,6 @@ void Wireless_Channel_Receive_Callback_Register(esp_event_handler_t cb, int chan
 void Wireless_Channel_Receive_Callback_Unregister(esp_event_handler_t cb, int channel);
 int Wireless_Pairing_Status_Get(void);
 void Wireless_Pairing_Begin(void);
+
 
 #endif
