@@ -97,6 +97,13 @@ int w_param_send_request(uint8_t message_type,
                          const uint8_t *value,
                          size_t value_len)
 {
+    // Проверка привязанности
+    if(Wireless_Pairing_Status_Get() != CON_PAIRED)
+    {
+        logW("Not paired, cannot send request");
+        return 5;
+    }
+
     // Формируем пакет с заголовком
     size_t full_size = sizeof(w_header_param_t) + value_len;
     w_header_param_t *hdr = (w_header_param_t *)malloc(full_size);
@@ -120,7 +127,7 @@ int w_param_send_request(uint8_t message_type,
                             (const uint8_t *)hdr,
                             full_size,
                             NULL);
-    free(hdr);
+    //free(hdr);
 
     return ret;
 }
@@ -176,10 +183,10 @@ static void w_param_process_packet(const uint8_t *packet_data, size_t packet_siz
     {
         // Параметр не найден
         // Отправим ответ с return_code != 0 (например, 1)
-        w_header_param_t hdr_out;
-        hdr_out.message_type = message_type;
-        hdr_out.set_or_get   = set_or_get;
-        hdr_out.return_code  = 1; // код ошибки "нет такого параметра"
+        w_header_param_t *hdr_out = (w_header_param_t *)malloc(sizeof(w_header_param_t));
+        hdr_out->message_type = message_type;
+        hdr_out->set_or_get   = set_or_get;
+        hdr_out->return_code  = 1; // код ошибки "нет такого параметра"
 
         // Ответ без данных
         Rdt_SendBlock(W_CHAN_PARAMS, (const uint8_t *)&hdr_out, sizeof(hdr_out), NULL);
@@ -263,5 +270,5 @@ static void w_param_process_packet(const uint8_t *packet_data, size_t packet_siz
     // Отправляем ответ
     Rdt_SendBlock(W_CHAN_PARAMS, response_buf, total_response_size, NULL);
 
-    free(response_buf);
+    //free(response_buf);
 }

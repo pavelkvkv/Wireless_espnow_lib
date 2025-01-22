@@ -48,7 +48,7 @@ int Rdt_ChannelInit(uint8_t channel, uint8_t rx_queue_len, uint8_t tx_queue_len,
 /**
  * @brief Добавить блок (указатель на данные) на отправку
  * @param[in] channel Номер канала
- * @param[in] data_ptr Указатель на блок данных
+ * @param[in] data_ptr Указатель на блок данных (будет автомпатически освобождаться)
  * @param[in] size Размер блока данных
  * @param[in] user_ctx Пользовательский контекст (необязательно)
  * @return 0 - OK, 1 - ошибка
@@ -77,6 +77,12 @@ void Rdt_FreeReceivedBlock(rdt_block_item_t *block_item);
 void Rdt_AddPeer(const uint8_t *peer_mac);
 
 void Wireless_Channel_Clear_Queue(int channel);
+
+/**
+ * @brief Get the current RSSI value
+ * @return RSSI value or 0 if not available
+ */
+int Wireless_Rssi_Get(void);
 
 enum 
 {

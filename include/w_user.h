@@ -41,6 +41,7 @@ enum
     W_MSG_TYPE_PARAM_MC_TITLES_IO  = 22,        // Названия контактов
     W_MSG_TYPE_PARAM_MC_TITLES_RELAY  = 23,     // Названия реле
     W_MSG_TYPE_PARAM_MC_TITLES_THERMO  = 24,    // Названия термометров
+    W_MSG_TYPE_PARAM_DISP_FWVER  = 25,          // Версия прошивки дисплея
 };
 
 

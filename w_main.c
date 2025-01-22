@@ -134,6 +134,15 @@ typedef struct
     size_t  max_block_size;
 } rdt_channel_t;
 
+
+typedef struct
+{
+    int8_t  rssi;
+    TickType_t last_rssi_update;
+} rssi_t;
+#define RSSI_TIMEOUT 3000
+static rssi_t rssi = {0};
+
 // ========================= Глобальные/статические переменные ==========================
 
 static const char *TAG = "rdt";
@@ -230,6 +239,9 @@ static void rdt_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *dat
         // Если данные некорректны, выходим
         return;
     }
+
+    rssi.last_rssi_update = xTaskGetTickCount();
+    rssi.rssi = recv_info->rx_ctrl->rssi;
 
     // Считаем, что данные не превышают 250 байт, а структура rdt_packet_t соответствует этим данным.
     // Создаём сообщение для обработки в основной задаче.
@@ -887,4 +899,17 @@ void Wireless_Channel_Clear_Queue(int channel)
 		logW("Channel %d has no rx queue", channel);
 	}
 	logI("Cleared queue for channel %d", channel);
+}
+
+/**
+ * @brief Get the current RSSI value
+ * @return RSSI value or 0 if not available
+ */
+int Wireless_Rssi_Get(void)
+{
+    if(rssi.last_rssi_update + RSSI_TIMEOUT < xTaskGetTickCount())
+    {
+        return rssi.rssi;
+    }
+    return 0;
 }
