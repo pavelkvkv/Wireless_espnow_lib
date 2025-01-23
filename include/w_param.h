@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "freertos/FreeRTOS.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -91,20 +92,76 @@ void w_param_deinit(void);
 void w_param_start(void);
 
 /**
- * @brief Отправить запрос GET или SET
- * @param[in] message_type  Один из W_MSG_TYPE_PARAM_XXX
- * @param[in] set_or_get    0 = GET, 1 = SET
- * @param[in] value         Данные для SET (или NULL для GET)
- * @param[in] value_len     Размер данных для SET (или 0 для GET)
- * @return 0 - OK, !=0 - ошибка
+ * @brief Синхронная (блокирующая) отправка запроса GET или SET и ожидание ответа.
+ * @param[in]  message_type  Тип параметра (W_MSG_TYPE_PARAM_XXX)
+ * @param[in]  set_or_get    W_PARAM_GET (0) или W_PARAM_SET (1)
+ * @param[in]  value         Данные для SET (или NULL для GET)
+ * @param[in]  value_len     Размер данных для SET (0, если GET)
+ * @param[out] resp_data     Буфер, куда положить полученный ответ (для GET или на всякий случай при SET)
+ * @param[in,out] resp_size  Вход: размер буфера resp_data, Выход: фактический размер пришедших данных
+ * @param[in]  wait_ticks    Время ожидания ответа в тиках (например, pdMS_TO_TICKS(1000))
+ * @param[out] return_code   Код возврата из ответа (0 - успех, != 0 - ошибка)
  *
- * Пример использования: w_param_send_request(W_MSG_TYPE_PARAM_TIME, W_PARAM_GET, NULL, 0);
+ * @return 0 - запрос успешно выполнен (ответ получен), != 0 - ошибка (например, таймаут)
+ *
+ * Примечание: если вам не важны данные при SET, можно передать NULL/0 в resp_data/resp_size.
  */
-int w_param_send_request(uint8_t message_type,
-                         uint8_t set_or_get,
-                         const uint8_t *value,
-                         size_t value_len);
+int w_param_request_blocking(uint8_t message_type,
+                             uint8_t set_or_get,
+                             const uint8_t *value,
+                             size_t value_len,
+                             uint8_t *resp_data,
+                             size_t *resp_size,
+                             TickType_t wait_ticks,
+                             uint8_t *return_code);
 
+/**
+ * @brief (Опционально) Асинхронная отправка запроса без ожидания ответа
+ *        (если в каких-то сценариях блокировать не нужно).
+ * @param[in] message_type
+ * @param[in] set_or_get
+ * @param[in] value
+ * @param[in] value_len
+ * @return 0 - успех, != 0 - ошибка
+ */
+int w_param_send_request_async(uint8_t message_type,
+                               uint8_t set_or_get,
+                               const uint8_t *value,
+                               size_t value_len);
+
+/**
+ * @brief Стандартный таймаут для запросов параметров (например, 2000 мс).
+ */
+#define W_PARAM_DEFAULT_TIMEOUT pdMS_TO_TICKS(2000)
+
+/**
+ * @brief Обёртка для выполнения GET-запроса с использованием стандартного таймаута.
+ * @param[in]  message_type  Тип параметра (W_MSG_TYPE_PARAM_XXX)
+ * @param[out] resp_data     Буфер для полученных данных
+ * @param[in,out] resp_size  Размер буфера на входе, фактический размер на выходе
+ * @param[out] return_code   Код возврата из ответа (0 - успех, != 0 - ошибка)
+ *
+ * @return 0 - успех (ответ получен), != 0 - ошибка (например, таймаут или внутренняя ошибка)
+ */
+int w_param_get(uint8_t message_type,
+               uint8_t *resp_data,
+               size_t *resp_size,
+               uint8_t *return_code);
+
+/**
+ * @brief Обёртка для выполнения SET-запроса с использованием стандартного таймаута.
+ * @param[in]  message_type  Тип параметра (W_MSG_TYPE_PARAM_XXX)
+ * @param[in]  value         Данные для установки
+ * @param[in]  value_len     Размер данных для установки
+ * @param[out] return_code   Код возврата из ответа (0 - успех, != 0 - ошибка)
+ *
+ * @return 0 - успех (ответ получен), != 0 - ошибка (например, таймаут или внутренняя ошибка)
+ */
+int w_param_set(uint8_t message_type,
+               const uint8_t *value,
+               size_t value_len,
+               uint8_t *return_code);
+               
 #ifdef __cplusplus
 }
 #endif

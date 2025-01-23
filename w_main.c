@@ -24,6 +24,7 @@
 #include "esp_system.h"
 #include "esp_event.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "w_main.h"
 #include "wireless_port.h"
 
@@ -50,7 +51,7 @@ esp_event_base_t const WIRELESS_EVENT_BASE = "WIRELESS_EVENT_BASE";
 /**
  * @brief Таймаут ожидания ACK (ASK) перед повторной пересылкой всего блока, мс
  */
-#define RDT_ACK_TIMEOUT_MS      100
+#define RDT_ACK_TIMEOUT_MS      50
 
 /**
  * @brief Максимальное количество повторных отправок целого блока
@@ -135,10 +136,15 @@ typedef struct
 } rdt_channel_t;
 
 
-typedef struct
-{
-    int8_t  rssi;
-    TickType_t last_rssi_update;
+typedef struct {
+    int8_t  rssi;                   // Текущий уровень RSSI
+    TickType_t last_rssi_update;    // Время последнего обновления RSSI
+    uint32_t total_packets_sent;    // Общее количество отправленных пакетов
+    uint32_t total_packets_resent;  // Общее количество reотправленных пакетов
+    bool is_connected;              // Статус подключения клиента
+    int64_t last_response_time;     // Время последнего ответа от клиента
+    uint8_t link_quality_score;     // Пользовательские "баллы" качества связи (0-5)
+    float error_rate;              // Процент ошибок приёмки
 } rssi_t;
 #define RSSI_TIMEOUT 3000
 static rssi_t rssi = {0};
@@ -215,6 +221,9 @@ static void rdt_restart_tx_block(uint8_t channel_idx);
 
 /** @brief Поиск пропущенных пакетов и формирование nack */
 static void rdt_send_nack_for_missing(uint8_t channel_idx, const uint8_t *dst_mac);
+
+static void check_connection_status(void);
+static void update_link_quality_score(void);
 
 // ========================= Определения статических функций ==========================
 
@@ -348,6 +357,7 @@ static uint32_t rdt_calc_crc(const rdt_packet_t *pkt)
 
 static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t *pkt, const uint8_t *src_mac)
 {
+    //heap_caps_check_integrity_all(true);
     // Проверяем CRC
     uint32_t calc_crc = rdt_calc_crc(pkt);
     if (calc_crc != pkt->crc)
@@ -465,7 +475,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             memset(&completed_block, 0, sizeof(completed_block));
             completed_block.data_ptr  = rx->rx_buffer;
             completed_block.data_size = rx->total_size;
-            logI("Recv block %d bytes from channel %d", completed_block.data_size, channel_idx);
+            //logI("Recv block %d bytes from channel %d", completed_block.data_size, channel_idx);
             xQueueSend(ch->rx_queue, &completed_block, 0);
             esp_event_post_to(W_event_loop, WIRELESS_EVENT_BASE, channel_idx, NULL, 0, 0);
             // Обнуляем
@@ -480,21 +490,27 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
     case RDT_MSG_ASK:
     {
         // Приёмник подтверждает, что все пакеты получены
+        rssi.is_connected = true;
+        rssi.last_response_time = esp_timer_get_time();
         if (tx->sending)
         {
             // Завершаем передачу блока, освобождаем буферы
+           // logI("Freeing block %p", tx->tx_buffer);
             free(tx->packet_sent_map);
             tx->packet_sent_map = NULL;
             free(tx->tx_buffer);
             tx->tx_buffer       = NULL;
             tx->sending         = false;
-            logI("Channel %d: block transmitted successfully", channel_idx);
+            //logI("Channel %d: block transmitted successfully", channel_idx);
         }
         break;
     }
 
     case RDT_MSG_NACK:
     {
+        rssi.is_connected = true;
+        rssi.last_response_time = esp_timer_get_time();
+
         // В payload могут быть номера seq для повторной отправки
         if (tx->sending)
         {
@@ -511,6 +527,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
                 // Переотправляем
                 if (missing_seq < tx->total_packets)
                 {
+                    rssi.total_packets_resent++;
                     if (missing_seq == 0)
                     {
                         // begin
@@ -546,10 +563,14 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
     default:
         break;
     }
+
+    check_connection_status();
+    //update_link_quality_score();
 }
 
 static void rdt_process_tx_channel(uint8_t channel_idx)
 {
+    //heap_caps_check_integrity_all(true);
     rdt_channel_t    *ch = &s_channels[channel_idx];
     rdt_channel_tx_t *tx = &ch->tx_ctrl;
 
@@ -581,6 +602,9 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
                 rdt_send_one_packet(channel_idx, 0, RDT_MSG_BEGIN, size_arr, 4);
                 tx->packet_sent_map[0] = true;
                 tx->next_seq_to_send   = 1;
+
+                // statistics
+                rssi.total_packets_sent += tx->total_packets;
             }
         }
     }
@@ -592,6 +616,7 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
         {
             // Не получили ASK: переотправляем весь блок
             tx->retry_count++;
+            rssi.total_packets_resent += tx->total_packets;
             if (tx->retry_count >= RDT_MAX_RETRY_COUNT)
             {
                 // Сдаёмся — сбрасываем передачу
@@ -642,7 +667,7 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
 static void rdt_restart_tx_block(uint8_t channel_idx)
 {
     rdt_channel_tx_t *tx = &s_channels[channel_idx].tx_ctrl;
-    logW("Channel %d: re-send entire block", channel_idx);
+    logD("Channel %d: re-send entire block", channel_idx);
     memset(tx->packet_sent_map, 0, tx->total_packets * sizeof(bool));
     tx->next_seq_to_send = 0;
     // Отправим begin
@@ -692,6 +717,42 @@ static void rdt_send_nack_for_missing(uint8_t channel_idx, const uint8_t *dst_ma
     rdt_send_one_packet(channel_idx, 0, RDT_MSG_NACK, buffer, RDT_PACKET_PAYLOAD_LEN);
 }
 
+static void check_connection_status(void)
+{
+    int64_t now = esp_timer_get_time();
+    if ((now - rssi.last_response_time) > (RDT_ACK_TIMEOUT_MS * 1000 * 5)) 
+    {
+        rssi.is_connected = false;  // Клиент не отвечает
+    }
+}
+
+static void update_link_quality_score(void)
+{
+    if (!rssi.is_connected) {
+        rssi.link_quality_score = 0;  // Нет связи
+        return;
+    }
+
+    // Расчёт процента ошибок
+    rssi.error_rate = (rssi.total_packets_sent > 0)
+        ? (float)rssi.total_packets_resent / (rssi.total_packets_sent ) 
+        : 0.0f;
+
+    // Оценка качества связи на основе RSSI и процента ошибок
+    if (rssi.rssi >= -50 && rssi.error_rate < 0.05f) {
+        rssi.link_quality_score = 5;  // Отличное качество
+    } else if (rssi.rssi >= -60 && rssi.error_rate < 0.2f) {
+        rssi.link_quality_score = 4;  // Хорошее качество
+    } else if (rssi.rssi >= -70 && rssi.error_rate < 0.3f) {
+        rssi.link_quality_score = 3;  // Удовлетворительное качество
+    } else if (rssi.rssi >= -80 && rssi.error_rate < 0.4f) {
+        rssi.link_quality_score = 2;  // Плохое качество
+    } else {
+        rssi.link_quality_score = 1;  // Очень плохое качество
+    }
+    logI("total_packets_sent: %"PRIu32", total_packets_resent: %"PRIu32, rssi.total_packets_sent, rssi.total_packets_resent);
+}
+
 // ========================= Глобальные функции ==========================
 
 /**
@@ -729,7 +790,7 @@ int Wireless_Init(void)
     }
     if (!s_rdt_event_queue)
     {
-        s_rdt_event_queue = xQueueCreate(10, sizeof(rdt_event_msg_t));
+        s_rdt_event_queue = xQueueCreate(20, sizeof(rdt_event_msg_t));
     }
     // Запуск задачи RDT
     if (!s_rdt_task_handle)
@@ -802,6 +863,12 @@ int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *u
 {
     if (channel >= RDT_MAX_CHANNELS) return 1;
     if (!data_ptr || size == 0) return 1;
+    // if(!heap_caps_check_addr(data_ptr))
+    // {
+    //     logE("data_ptr not in heap!");
+    //     return 1;
+    // }
+    //heap_caps_check_integrity_all(true);
 
     rdt_channel_t *ch = &s_channels[channel];
 
@@ -816,6 +883,7 @@ int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *u
         logE("queue full");
         return 1;
     }
+   // logI("block %p enqueued", item.data_ptr);
     return 0;
 }
 
@@ -845,6 +913,7 @@ bool Rdt_ReceiveBlock(uint8_t channel, rdt_block_item_t *block_item, TickType_t 
  */
 void Rdt_FreeReceivedBlock(rdt_block_item_t *block_item)
 {
+    //heap_caps_check_integrity_all(true);
     if (!block_item) return;
     if (block_item->data_ptr)
     {
@@ -907,9 +976,30 @@ void Wireless_Channel_Clear_Queue(int channel)
  */
 int Wireless_Rssi_Get(void)
 {
-    if(rssi.last_rssi_update + RSSI_TIMEOUT < xTaskGetTickCount())
+    if (rssi.last_rssi_update + RSSI_TIMEOUT < xTaskGetTickCount())
     {
         return rssi.rssi;
     }
     return 0;
 }
+
+float Wireless_Error_Rate_Get(u8 *score)
+{
+    update_link_quality_score();
+    rssi.total_packets_resent = 0;
+    rssi.total_packets_sent = 0;
+    *score = rssi.link_quality_score;
+    return rssi.error_rate;
+}
+
+bool Wireless_Is_Connected(void)
+{
+    check_connection_status();
+    return rssi.is_connected;
+}
+
+// uint8_t Wireless_Link_Quality_Score_Get(void)
+// {
+//     update_link_quality_score();
+//     return rssi.link_quality_score;
+// }

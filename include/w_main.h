@@ -83,6 +83,8 @@ void Wireless_Channel_Clear_Queue(int channel);
  * @return RSSI value or 0 if not available
  */
 int Wireless_Rssi_Get(void);
+float Wireless_Error_Rate_Get(u8 *score);
+bool Wireless_Is_Connected(void);
 
 enum 
 {

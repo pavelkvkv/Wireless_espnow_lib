@@ -88,12 +88,12 @@ int Wireless_Pairing_Status_Get(void)
     }
     if (!has_any_nonzero)
     {
-        logI("Pairing not found, mac: %02x:%02x:%02x:%02x:%02x:%02x",
-             peer[0], peer[1], peer[2], peer[3], peer[4], peer[5]);
+        //logI("Pairing not found, mac: %02x:%02x:%02x:%02x:%02x:%02x",
+             //peer[0], peer[1], peer[2], peer[3], peer[4], peer[5]);
         return CON_NOT_PAIRED;
     }
-    logI("Pairing found, mac: %02x:%02x:%02x:%02x:%02x:%02x",
-         peer[0], peer[1], peer[2], peer[3], peer[4], peer[5]);
+    //logI("Pairing found, mac: %02x:%02x:%02x:%02x:%02x:%02x",
+         //peer[0], peer[1], peer[2], peer[3], peer[4], peer[5]);
     return CON_PAIRED;
 }
 
@@ -154,7 +154,7 @@ static void wireless_pairing_task(void *arg)
         if (sent)
         {
             // Если не удалось отправить, освободим память самостоятельно
-            //free(p_msg);
+            free(p_msg);
             logE("Failed to send pairing request block");
         }
         else
@@ -278,7 +278,7 @@ static void wireless_pairing_receive_cb(void *handler_arg, esp_event_base_t base
             bool sent = Rdt_SendBlock(W_CHAN_SYSTEM, (void *)p_done, sizeof(*p_done), NULL);
             if (sent)
             {
-                //free(p_done);
+                free(p_done);
                 logE("Failed to send DONE packet");
             }
             else
