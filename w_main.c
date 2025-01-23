@@ -138,11 +138,10 @@ typedef struct
 
 typedef struct {
     int8_t  rssi;                   // Текущий уровень RSSI
-    TickType_t last_rssi_update;    // Время последнего обновления RSSI
+    int64_t last_rssi_update;    // Время последнего обновления RSSI
     uint32_t total_packets_sent;    // Общее количество отправленных пакетов
     uint32_t total_packets_resent;  // Общее количество reотправленных пакетов
     bool is_connected;              // Статус подключения клиента
-    int64_t last_response_time;     // Время последнего ответа от клиента
     uint8_t link_quality_score;     // Пользовательские "баллы" качества связи (0-5)
     float error_rate;              // Процент ошибок приёмки
 } rssi_t;
@@ -393,6 +392,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             rx->total_size = ch->max_block_size;
         }
         rx->total_packets    = (rx->total_size + RDT_PACKET_PAYLOAD_LEN - 1) / RDT_PACKET_PAYLOAD_LEN + 2; // +2 c учётом begin/end
+        rssi.total_packets_sent += rx->total_packets;
         // Освобождаем старые буферы, если что
         if (rx->rx_buffer)
         {
@@ -490,8 +490,6 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
     case RDT_MSG_ASK:
     {
         // Приёмник подтверждает, что все пакеты получены
-        rssi.is_connected = true;
-        rssi.last_response_time = esp_timer_get_time();
         if (tx->sending)
         {
             // Завершаем передачу блока, освобождаем буферы
@@ -508,9 +506,6 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
 
     case RDT_MSG_NACK:
     {
-        rssi.is_connected = true;
-        rssi.last_response_time = esp_timer_get_time();
-
         // В payload могут быть номера seq для повторной отправки
         if (tx->sending)
         {
@@ -564,7 +559,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
         break;
     }
 
-    check_connection_status();
+    
     //update_link_quality_score();
 }
 
@@ -696,6 +691,7 @@ static void rdt_send_nack_for_missing(uint8_t channel_idx, const uint8_t *dst_ma
     {
         if (!rx->packet_received_map[i])
         {
+            rssi.total_packets_resent++;
             if (idx + 2 <= RDT_PACKET_PAYLOAD_LEN)
             {
                 buffer[idx]   = (uint8_t)(i & 0xFF);
@@ -719,24 +715,29 @@ static void rdt_send_nack_for_missing(uint8_t channel_idx, const uint8_t *dst_ma
 
 static void check_connection_status(void)
 {
-    int64_t now = esp_timer_get_time();
-    if ((now - rssi.last_response_time) > (RDT_ACK_TIMEOUT_MS * 1000 * 5)) 
+    int64_t now = xTaskGetTickCount();
+    if ((now - rssi.last_rssi_update) > (RSSI_TIMEOUT)) 
     {
         rssi.is_connected = false;  // Клиент не отвечает
+        logI("dis due to now=%"PRId64", last_rssi_update=%"PRId64, now, rssi.last_rssi_update);
+    }
+    else
+    {
+        rssi.is_connected = true;
     }
 }
 
 static void update_link_quality_score(void)
 {
-    if (!rssi.is_connected) {
-        rssi.link_quality_score = 0;  // Нет связи
-        return;
-    }
-
     // Расчёт процента ошибок
     rssi.error_rate = (rssi.total_packets_sent > 0)
         ? (float)rssi.total_packets_resent / (rssi.total_packets_sent ) 
         : 0.0f;
+
+    if (!rssi.is_connected) {
+        rssi.link_quality_score = 0;  // Нет связи
+        return;
+    }
 
     // Оценка качества связи на основе RSSI и процента ошибок
     if (rssi.rssi >= -50 && rssi.error_rate < 0.05f) {
@@ -750,7 +751,6 @@ static void update_link_quality_score(void)
     } else {
         rssi.link_quality_score = 1;  // Очень плохое качество
     }
-    logI("total_packets_sent: %"PRIu32", total_packets_resent: %"PRIu32, rssi.total_packets_sent, rssi.total_packets_resent);
 }
 
 // ========================= Глобальные функции ==========================
@@ -877,7 +877,7 @@ int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *u
     item.data_size = size;
     item.user_ctx  = user_ctx;
 
-    if (xQueueSend(ch->tx_queue, &item, 0) != pdTRUE)
+    if (xQueueSend(ch->tx_queue, &item, 1000) != pdTRUE)
     {
         // Очередь заполнена
         logE("queue full");
@@ -976,16 +976,21 @@ void Wireless_Channel_Clear_Queue(int channel)
  */
 int Wireless_Rssi_Get(void)
 {
-    if (rssi.last_rssi_update + RSSI_TIMEOUT < xTaskGetTickCount())
+    if (xTaskGetTickCount() - rssi.last_rssi_update < RSSI_TIMEOUT)
     {
         return rssi.rssi;
     }
+    //logI("no rssi due to now=%"PRIu32", last_rssi_update=%"PRId64, xTaskGetTickCount(), rssi.last_rssi_update);
     return 0;
 }
 
 float Wireless_Error_Rate_Get(u8 *score)
 {
+    logI("total_packets_sent/resent: %"PRIu32"/%"PRIu32", %s", rssi.total_packets_sent, rssi.total_packets_resent, rssi.is_connected?"connected":"disconnected");
+
+    check_connection_status();
     update_link_quality_score();
+    
     rssi.total_packets_resent = 0;
     rssi.total_packets_sent = 0;
     *score = rssi.link_quality_score;
