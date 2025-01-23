@@ -51,7 +51,7 @@ esp_event_base_t const WIRELESS_EVENT_BASE = "WIRELESS_EVENT_BASE";
 /**
  * @brief Таймаут ожидания ACK (ASK) перед повторной пересылкой всего блока, мс
  */
-#define RDT_ACK_TIMEOUT_MS      50
+#define RDT_ACK_TIMEOUT_MS      100
 
 /**
  * @brief Максимальное количество повторных отправок целого блока
@@ -476,11 +476,19 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             completed_block.data_ptr  = rx->rx_buffer;
             completed_block.data_size = rx->total_size;
             //logI("Recv block %d bytes from channel %d", completed_block.data_size, channel_idx);
-            xQueueSend(ch->rx_queue, &completed_block, 0);
+            if(pdTRUE != xQueueSend(ch->rx_queue, &completed_block, 0))
+            {
+                logE("rx_queue full!");
+                free(rx->rx_buffer);
+            }
             esp_event_post_to(W_event_loop, WIRELESS_EVENT_BASE, channel_idx, NULL, 0, 0);
             // Обнуляем
             rx->rx_buffer          = NULL;
-            rx->packet_received_map = NULL;
+            if (rx->packet_received_map)
+            {
+                free(rx->packet_received_map);
+                rx->packet_received_map = NULL;
+            }
             rx->receiving          = false;
         }
         rx->last_packet_time = esp_timer_get_time();
@@ -500,6 +508,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             tx->tx_buffer       = NULL;
             tx->sending         = false;
             //logI("Channel %d: block transmitted successfully", channel_idx);
+            logD("ask wait for %"PRId64" ms", (esp_timer_get_time() - tx->last_send_time) / 1000);
         }
         break;
     }
@@ -615,7 +624,7 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
             if (tx->retry_count >= RDT_MAX_RETRY_COUNT)
             {
                 // Сдаёмся — сбрасываем передачу
-                logW("Channel %d: block send failed after max retries", channel_idx);
+                logD("Channel %d: block send failed after max retries", channel_idx);
                 free(tx->packet_sent_map);
                 tx->packet_sent_map = NULL;
                 free(tx->tx_buffer);
@@ -790,7 +799,7 @@ int Wireless_Init(void)
     }
     if (!s_rdt_event_queue)
     {
-        s_rdt_event_queue = xQueueCreate(20, sizeof(rdt_event_msg_t));
+        s_rdt_event_queue = xQueueCreate(30, sizeof(rdt_event_msg_t));
     }
     // Запуск задачи RDT
     if (!s_rdt_task_handle)

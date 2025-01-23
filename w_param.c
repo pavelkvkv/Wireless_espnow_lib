@@ -328,7 +328,7 @@ static void w_param_process_packet(const uint8_t *packet_data, size_t packet_siz
         }
 
         // Готовим буфер для ответа (например, до 256 байт)
-        size_t max_resp_data = 256;
+        size_t max_resp_data = MAX_PARAM_LENGTH;
         uint8_t *resp_buf = (uint8_t *)malloc(sizeof(w_header_param_t) + max_resp_data);
         if (!resp_buf)
         {
