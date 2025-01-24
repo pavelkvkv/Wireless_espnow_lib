@@ -6,7 +6,7 @@
  *  Этот файл содержит реализацию функций для отправки/получения параметров.
  *  Он предполагает использование внешнего драйвера (rdt_xxx) для низкоуровневой отправки/приёма данных.
  *
- *  @author
+ *  @author Pavel
  *  @date 2025-01-22
  */
 
@@ -427,9 +427,9 @@ static void w_param_process_packet(const uint8_t *packet_data, size_t packet_siz
         }
         else
         {
-            logW("Неожиданный или ненужный ответ type=%d", (int)message_type);
-            if(g_request_in_progress) logW("Ожидается ответ на запрос type=%d", (int)g_req_msg_type);
-            else logW("Нет активного запроса");
+            // logW("Неожиданный или ненужный ответ type=%d", (int)message_type);
+            // if(g_request_in_progress) logW("Ожидается ответ на запрос type=%d", (int)g_req_msg_type);
+            // else logW("Нет активного запроса");
         }
     }
     else
