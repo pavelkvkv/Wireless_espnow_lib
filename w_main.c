@@ -2,9 +2,6 @@
  * @file w_main.c
  * @brief Основной файл библиотеки wireless_lib для ESP32.
  *
- * Обеспечивает соединение двух ESP32 по WiFi. В зависимости от роли
- * устройство может быть либо точкой доступа, либо клиентом.
- * Оба режима организуют сокетное соединение и обмениваются данными.
  * @author pavel
  * @date 2025-01-18
  */
@@ -725,7 +722,7 @@ static void rdt_send_nack_for_missing(uint8_t channel_idx, const uint8_t *dst_ma
 static void check_connection_status(void)
 {
     int64_t now = xTaskGetTickCount();
-    if ((now - rssi.last_rssi_update) > (RSSI_TIMEOUT)) 
+    if ((now - rssi.last_rssi_update) > (RSSI_TIMEOUT) || rssi.last_rssi_update == 0) 
     {
         rssi.is_connected = false;  // Клиент не отвечает
         logI("dis due to now=%"PRId64", last_rssi_update=%"PRId64, now, rssi.last_rssi_update);

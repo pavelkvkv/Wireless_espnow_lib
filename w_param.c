@@ -37,6 +37,8 @@ static bool                        g_initialized = false;
 static SemaphoreHandle_t g_response_sem = NULL; ///< Семафор для ожидания ответа
 static bool              g_request_in_progress = false; ///< Флаг активного запроса
 
+static SemaphoreHandle_t g_request_mutex = NULL;
+
 /**
  * Поле message_type текущего запроса (чтобы знать, какой ответ ожидаем)
  */
@@ -93,6 +95,7 @@ void w_param_init(const w_param_descriptor_t *table, size_t table_count)
     {
         g_response_sem = xSemaphoreCreateBinary();
     }
+    g_request_mutex = xSemaphoreCreateMutex();
 }
 
 void w_param_deinit(void)
@@ -165,10 +168,18 @@ int w_param_request_blocking(uint8_t message_type,
         return -1;
     }
 
+    if(xSemaphoreTake(g_request_mutex, W_PARAM_DEFAULT_TIMEOUT ) != pdTRUE)
+    {
+        if (return_code) { *return_code = 0xFE; }
+        logE("mutex take failed!");
+        return -2;
+    }
+
     if (g_request_in_progress)
     {
         if (return_code) { *return_code = 0xFE; }
         logE("уже выполняется другой запрос!");
+        xSemaphoreGive(g_request_mutex);
         return -2;
     }
 
@@ -191,6 +202,7 @@ int w_param_request_blocking(uint8_t message_type,
         g_request_in_progress = false;
         if (return_code) { *return_code = 0xFD; }
         logW("ошибка при отправке запроса");
+        xSemaphoreGive(g_request_mutex);
         return ret_send; 
     }
 
@@ -203,6 +215,7 @@ int w_param_request_blocking(uint8_t message_type,
 
         g_request_in_progress = false;
         logI("Done param request msg_type=%d, %s, value_len=%d", message_type, set_or_get?"SET":"GET", value_len);
+        xSemaphoreGive(g_request_mutex);
         return 0;
     }
     else
@@ -211,6 +224,7 @@ int w_param_request_blocking(uint8_t message_type,
         g_request_in_progress = false;
         if (return_code) { *return_code = 0xFC; }
         logW("превышено время ожидания ответа");
+        xSemaphoreGive(g_request_mutex);
         return -3;
     }
 }
