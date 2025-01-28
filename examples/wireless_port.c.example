@@ -1,0 +1,199 @@
+/**
+ * @file wireless_port.c
+ * @brief Порт библиотеки wireless_lib для ESP32 для разрешения различий между проектами
+ * @date 2025-01-18
+ * @author pavel
+ */
+
+//#include "settings.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <inttypes.h>
+#include "AT32_structs_MC.h"
+#include "../../main/include/global.h"
+
+#define TAG "Wireless_Port"
+#include "../../main/include/log.h"
+
+// Подключаем заголовки с описанием Secure_AT32_Reclist_Scan_*:
+#include "AT32_scan_controller.h"
+
+// И заголовок с uopen, uread, uwrite, uclose, useek:
+#include "Storage.h"
+
+// Заголовок с описанием w_files_header_t, констант и т.п.
+#include "w_files.h"
+
+#define FILELIST_MAX_ITEMS	48UL // обусловлено размером чанка SPI
+
+//
+// Реализация функции получения списка файлов
+//
+
+/**
+ * @brief Получить список файлов из каталога (directory) и записать результат
+ *        в resp_buf после заголовка w_files_header_t.
+ *
+ * @param[in]  directory   Путь к каталогу ("/0/recordings", "/storage/...", "/1/music" и т.д.)
+ * @param[out] resp_buf  Буфер, в который нужно записать результат.
+ *                       В начале буфера располагается w_files_header_t, а затем идут данные.
+ * @param[in,out] out_data_length Размер данных в буфере resp_data. На входе - максимальный размер буфера.
+ * @return Код результата (W_FILES_OK / W_FILES_ERR_...).
+ */
+/**
+ * @brief Получить список файлов из каталога (directory) и записать результат
+ *        в resp_data после заголовка w_files_header_t.
+ *
+ * @param[in]  directory   Путь к каталогу ("/0/recordings", "/storage/...", "/1/music" и т.д.)
+ * @param[out] resp_data  Буфер, в который нужно записать результат.
+ *                       Данные записываются непосредственно в resp_data без отступа.
+ * @param[in,out] out_data_length Размер данных в буфере resp_data.
+ *                               На входе - максимальный размер буфера.
+ *                               На выходе - фактический размер записанных данных.
+ * @return Код результата (W_FILES_OK / W_FILES_ERR_...).
+ */
+int w_port_filelist_get(const char *directory, uint8_t *resp_data, size_t *out_data_length)
+{
+    logI("Dir: %s", directory);
+    
+    // Проверка входных параметров
+    if (!directory || !resp_data || !out_data_length)
+    {
+        logE("Invalid parameters");
+        return W_FILES_ERR_INTERNAL;
+    }
+
+    // Инициализация переменных
+    size_t resp_data_cap = *out_data_length; // Максимальный размер буфера
+    size_t resp_offset = 0;                  // Текущее смещение в буфере
+
+    // Изначально считаем, что всё ок
+    int return_code = W_FILES_OK;
+    *out_data_length = 0; // Начинаем с 0 записанных байт
+
+    // Устанавливаем каталог через API
+    if (Secure_AT32_Reclist_Scan_Set_Dir(directory) != ERET_OK)
+    {
+        // Если не удалось установить каталог, возвращаем ошибку
+        logE("Failed to set directory: %s", directory);
+        return W_FILES_ERR_NOFILE;
+    }
+
+    // Размер одного сегмента в байтах
+    size_t segment_size = FILELIST_MAX_ITEMS * sizeof(StructResp_filelist_item_t);
+
+    while (1)
+    {
+        // Проверяем, достаточно ли места для записи следующего сегмента
+        if (resp_offset + segment_size > resp_data_cap)
+        {
+            logE("Not enough space in buffer for another segment. Required: %zu, Available: %zu",
+                 resp_offset + segment_size, resp_data_cap);
+            return_code = W_FILES_ERR_INTERNAL;
+            break;
+        }
+
+        // Указатель на текущую позицию в буфере для записи сегмента
+        void *current_segment_ptr = resp_data + resp_offset;
+
+        // Получаем сегмент файлов и записываем его непосредственно в resp_data
+        eret_t ret = Secure_AT32_Reclist_Scan_Get_Segment(current_segment_ptr);
+        if (ret != ERET_OK)
+        {
+            // Дошли до конца списка или произошла ошибка
+            logI("End of file list or error encountered");
+            break;
+        }
+
+        // Обрабатываем сегмент: считаем количество реально записанных элементов
+        StructResp_filelist_item_t *segment = (StructResp_filelist_item_t *)current_segment_ptr;
+        size_t items_in_segment = 0;
+
+        for (; items_in_segment < FILELIST_MAX_ITEMS; ++items_in_segment)
+        {
+            // Проверяем, заполнено ли поле path
+            if (segment[items_in_segment].path[0] == '\0')
+            {
+                // Пустой путь означает конец данных в сегменте
+                logI("Empty path encountered at segment index %zu, stopping processing", items_in_segment);
+                break;
+            }
+        }
+
+        // Обновляем смещение в буфере на количество реально записанных элементов
+        resp_offset += items_in_segment * sizeof(StructResp_filelist_item_t);
+
+        // Если количество записанных элементов меньше максимального, значит, достигнут конец списка
+        if (items_in_segment < FILELIST_MAX_ITEMS)
+        {
+            logI("All available files have been processed");
+            break;
+        }
+
+        // Если сегмент полностью заполнен, продолжаем чтение
+    }
+
+    // Заполняем фактическую длину записанных данных
+    *out_data_length = resp_offset;
+
+    return return_code;
+}
+
+//
+// Ниже — замены на uopen / uread / uwrite / uclose / useek
+// вместо стандартных fopen, fread, fwrite, fclose, fseek
+//
+
+FILE *w_port_fopen(const char *filename, const char *mode)
+{
+    // Вызываем вашу функцию-обёртку
+    FILE *file = uopen(filename, mode);
+    if (!file)
+    {
+        // Тут можно вывести лог или установить errno вручную
+        perror("w_port_fopen: Error opening file");
+    }
+    return file;
+}
+
+size_t w_port_fread(void *ptr, size_t size, size_t count, FILE *stream)
+{
+    // Вызываем вашу функцию чтения
+    size_t ret = uread(ptr, size, count, stream);
+    // В uread уже есть логи, можно при желании добавить свой код
+    // if (ret < count) { ... }
+    return ret;
+}
+
+size_t w_port_fwrite(const void *ptr, size_t size, size_t count, FILE *stream)
+{
+    size_t ret = uwrite(ptr, size, count, stream);
+    // Аналогично можно проверить ret < count
+    return ret;
+}
+
+int w_port_fclose(FILE *stream)
+{
+    int ret = uclose(stream);
+    // uclose возвращает 0, если успешно
+    if (ret != 0)
+    {
+        perror("w_port_fclose: Error closing file");
+    }
+    return ret;
+}
+
+int w_port_fseek(FILE *stream, long offset, int whence)
+{
+    // Предположим, что вы передаёте offset как int, а whence (SEEK_SET/SEEK_CUR/SEEK_END)
+    // совместимы с useek
+    int ret = useek(stream, (int)offset, whence);
+    if (ret != 0)
+    {
+        perror("w_port_fseek: Error seeking in file");
+    }
+    return ret;
+}

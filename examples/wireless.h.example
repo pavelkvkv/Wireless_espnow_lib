@@ -1,0 +1,21 @@
+/**
+ * @file wireless.h
+ * @brief 
+ * @date 2025-01-21
+ * @author Pavel
+ */
+
+#ifndef _WIRELESS_H_
+#define _WIRELESS_H_
+
+#include "w_user.h"
+
+void Wireless_Params_Init(void);
+void Wireless_Feed_Init(void);
+
+/**
+ * @brief Инициализация модуля передачи файлов и списков. Регистрирует приём на канале W_CHAN_FILES.
+ */
+void Wireless_Files_Init(void);
+
+#endif  /* _WIRELESS_H_ */

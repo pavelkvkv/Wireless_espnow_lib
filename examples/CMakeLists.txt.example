@@ -1,0 +1,4 @@
+idf_component_register(SRC_DIRS "." "wireless_lib_espnow"
+                       REQUIRES driver esp_netif esp_event esp_wifi Settings_Sharing esp_system
+                       INCLUDE_DIRS "include" "wireless_lib_espnow/include"
+                       )

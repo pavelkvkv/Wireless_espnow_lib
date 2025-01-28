@@ -1,0 +1,88 @@
+/**
+ * @file wireless_feed.c
+ * @brief Обмен данными - рассылка сенсоров, ответ на запросы, передача файлов
+ * @author Pavel
+ * @date 2025-01-21
+ */
+
+#include "w_main.h"
+#include "w_user.h"
+#include "wireless_port.h"
+#include "AT32_structs_MC.h"
+#include "AT32_api.h"
+
+#define TAG "Wireless_Feed"
+#include "../../main/include/log.h"
+
+static void wireless_feed_task(void *arg);
+
+void Wireless_Feed_Init()
+{
+	xTaskCreate(wireless_feed_task, "wireless_feed_task", 4096, NULL, 5, NULL);
+}
+
+// Рассылка сенсоров
+static void wireless_feed_task(void *arg)
+{
+	while (1)
+	{
+		vTaskDelay(1000);
+
+		if (Wireless_Pairing_Status_Get() != CON_PAIRED)
+			continue;
+
+		{
+			// Thermometers
+			StructMC_ValueThermo_t values[THERMO_UNITS_MAX];
+			AT32_MC_Get_Values_Termometers(values, sizeof(values));
+
+			w_header_sensors_t *datagram = malloc(sizeof(w_header_sensors_t) + sizeof(values));
+			if (datagram == NULL)
+			{
+				logE("Cannot allocate memory for datagram");
+				continue;
+			}
+			memcpy(datagram->data, values, sizeof(values));
+			datagram->message_type = W_MSG_TYPE_SENSORS_THERMO;
+			if (1 == Rdt_SendBlock(W_CHAN_SENSORS, (u8 *)datagram, sizeof(w_header_sensors_t) + sizeof(values), NULL))
+			{
+				free(datagram);
+			}
+		}
+		{
+			// Relays
+			StructMC_ValueRelay_t relays[RELAYS_MAX];
+			AT32_MC_Get_Values_Relays(relays, sizeof(relays));
+			w_header_sensors_t *datagram = malloc(sizeof(w_header_sensors_t) + sizeof(relays));
+			if (datagram == NULL)
+			{
+				logE("Cannot allocate memory for datagram");
+				continue;
+			}
+			memcpy(datagram->data, relays, sizeof(relays));
+			datagram->message_type = W_MSG_TYPE_SENSORS_RELAY;
+			if (1 == Rdt_SendBlock(W_CHAN_SENSORS, (u8 *)datagram, sizeof(w_header_sensors_t) + sizeof(relays), NULL))
+			{
+				free(datagram);
+			}
+		}
+		{
+			// IO
+			StructMC_ValueIO_t io[IO_MAX];
+			AT32_MC_Get_Values_Digital(io, sizeof(io));
+			w_header_sensors_t *datagram = malloc(sizeof(w_header_sensors_t) + sizeof(io));
+			if (datagram == NULL)
+			{
+				logE("Cannot allocate memory for datagram");
+				continue;
+			}
+			memcpy(datagram->data, io, sizeof(io));
+			datagram->message_type = W_MSG_TYPE_SENSORS_IO;
+			if (1 == Rdt_SendBlock(W_CHAN_SENSORS, (u8 *)datagram, sizeof(w_header_sensors_t) + sizeof(io), NULL))
+			{
+				free(datagram);
+			}
+		}
+	}
+}
+

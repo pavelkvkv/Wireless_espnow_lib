@@ -1,0 +1,344 @@
+/**
+ * @file wireless_params.c
+ * @brief Параметры проекта (проектная часть компонента)
+ * @author Pavel
+ * @date 2025-01-22
+ */
+
+
+#include "w_user.h"
+#include "w_param.h"
+#include <string.h>
+#include <time.h>
+#include <stdio.h>
+
+#include "settings_sharing.h"
+#include "configuration.h"
+#include "AT32_structs_MC.h"
+
+#define TAG "Wireless_Params"
+#include "../../main/include/log.h"
+
+/**
+ * @brief чтение системного времени (параметр TIME)
+ * @param[out] out_data
+ * @param[in,out] out_size
+ * @return 0 - OK, !=0 - ошибка
+ */
+static int param_time_read_fn(uint8_t *out_data, size_t *out_size)
+{
+	typedef struct
+	{
+		int year;		   ///< Год
+		int month;		   ///< Месяц (1-12)
+		int day;		   ///< День месяца (1-31)
+		int hour;		   ///< Часы (0-23)
+		int minute;		   ///< Минуты (0-59)
+		int second;		   ///< Секунды (0-59)
+		char timezone[32]; ///< Часовой пояс (например, "UTC", "PST", "EST")
+	} TimeZone;
+
+	logI("");
+	if (out_data == NULL || out_size == NULL || *out_size < sizeof(TimeZone))
+	{
+		return -1;
+	}
+
+	struct timeval tv;
+	struct tm *time_info;
+	TimeZone time_zone = {0};
+
+	if (gettimeofday(&tv, NULL) != 0)
+	{
+		return -1;
+	}
+
+	time_info = localtime(&tv.tv_sec);
+	if (time_info == NULL)
+	{
+		return -1;
+	}
+
+	time_zone.year	 = time_info->tm_year + 1900;
+	time_zone.month	 = time_info->tm_mon + 1;
+	time_zone.day	 = time_info->tm_mday;
+	time_zone.hour	 = time_info->tm_hour;
+	time_zone.minute = time_info->tm_min;
+	time_zone.second = time_info->tm_sec;
+
+	const char *current_tz = getenv("TZ");
+	if (current_tz != NULL)
+	{
+		strncpy(time_zone.timezone, current_tz, sizeof(time_zone.timezone) - 1);
+		time_zone.timezone[sizeof(time_zone.timezone) - 1] = '\0';
+	}
+	else
+	{
+		strncpy(time_zone.timezone, "Unknown", sizeof(time_zone.timezone) - 1);
+		time_zone.timezone[sizeof(time_zone.timezone) - 1] = '\0';
+	}
+
+	memcpy(out_data, &time_zone, sizeof(TimeZone));
+	*out_size = sizeof(TimeZone);
+
+	return 0;
+}
+
+/**
+ * @brief Пример: запись системного времени не поддерживается
+ */
+// static int param_time_write_fn(const uint8_t *in_data, size_t in_size)
+// {
+//     // Допустим, нельзя установить время
+//     // Если бы поддерживалось - тут бы вызывали rtc_set_time(...) или подобную функцию
+//     return 1; // ошибка
+// }
+
+/**
+ * @brief Чтение конфига МС
+ */
+static int param_mc_config_read_fn(uint8_t *out_data, size_t *out_size)
+{
+    logI("");
+    StructMC_Config_t config;
+    config.slot_has_i2c_1wire = ConfMC_get_1wire();
+    config.slot_has_i2c_io = ConfMC_get_io();
+    config.slot_has_relay = ConfMC_get_relays();
+    if (*out_size < sizeof(config))
+    {
+        return 2; // буфер слишком маленький
+    }
+    memcpy(out_data, &config, sizeof(config));
+    *out_size = sizeof(config);
+    return 0;
+}
+
+// /**
+//  * @brief Пример: запись "MC_CONFIG"
+//  */
+// static int param_mc_config_write_fn(const uint8_t *in_data, size_t in_size)
+// {
+//     if (in_size > sizeof(g_mc_config_data))
+//     {
+//         return 3; // слишком большие данные
+//     }
+//     memcpy(g_mc_config_data, in_data, in_size);
+//     g_mc_config_size = in_size;
+//     return 0; // успех
+// }
+
+/**
+ * @brief Чтение тайтлов сухих контактов, структура от веба
+ */
+static int param_mc_titles_io_read_fn(uint8_t *out_data, size_t *out_size)
+{
+    logI("");
+	StructMC_UnitParam_t *value = (StructMC_UnitParam_t *)out_data;
+	size_t len					= sizeof(StructMC_UnitParam_t) * IO_MAX;
+	if (*out_size < len)
+	{
+		return 4;
+	}
+	int value_idx = 0;
+
+	for(int slot = 0; slot < IO_MODULES_MAX; slot++)
+    {
+        for(int unit = 0; unit < IO_COUNT; unit++)
+        {
+            if(Config.mcslots_sections[slot].io_count <= unit) 
+                value[value_idx].present = false;
+            else 
+                value[value_idx].present = true;
+            
+            S_MC_Get_Title_IO(slot, unit, value[value_idx].title, sizeof(value[value_idx].title));
+            value[value_idx].slot = slot;
+            value[value_idx].unit = unit;
+            value[value_idx].is_valid = true;
+
+            value_idx++;
+        }
+    }
+
+	*out_size = len;
+	return 0;
+}
+
+static int param_mc_titles_relay_read_fn(uint8_t *out_data, size_t *out_size)
+{
+    logI("");
+    StructMC_UnitParam_t *value = (StructMC_UnitParam_t *)out_data;
+    size_t len					= sizeof(StructMC_UnitParam_t) * RELAYS_MAX;
+    if (*out_size < len)
+    {
+        return 4;
+    }
+    int value_idx = 0;
+    for (int slot = 0; slot < RELAY_MODULES_MAX; slot++)
+    {
+        for (int unit = 0; unit < RELAYS_COUNT; unit++)
+        {
+            value[value_idx].present = Config.mcslots_sections[slot].relay_count > unit;
+            S_MC_Get_Title_Relay(slot, unit, value[value_idx].title, sizeof(value[value_idx].title));
+            value[value_idx].type = S_MC_Get_Relay_Type(slot, unit);
+            value[value_idx].slot = slot;
+            value[value_idx].unit = unit;
+            value[value_idx].parameter = S_MC_Get_Relay_Tone_Type(slot, unit);
+            value[value_idx].is_valid = true;
+            value_idx++;
+        }
+    }
+
+    *out_size = len;
+    return 0;
+}
+
+static int param_mc_titles_thermo_read_fn(uint8_t *out_data, size_t *out_size)
+{
+    //logI("");
+    StructMC_UnitParam_t *therm_list = (StructMC_UnitParam_t *)out_data;
+    size_t len					= sizeof(StructMC_UnitParam_t) * THERMO_UNITS_MAX;
+    if (*out_size < len)
+    {
+        return 4;
+    }
+    int value_idx = 0;
+   
+    StructMC_ValueThermo_t thermos[THERMO_UNITS_MAX] = {};
+    u64 perm_ids[THERMO_UNITS_MAX] = {};
+    int perm_count = 0;
+
+    // Получение списка перманентных термометров
+    bool restart = true;
+    while (perm_count < THERMO_UNITS_MAX && S_MC_Find_Thermometer_Permanent(&perm_ids[perm_count], restart))
+    {
+        restart = false; // Для следующего вызова устанавливаем флаг restart в false
+        perm_count++;
+    }
+    //logI("Found %d permanent thermometers", perm_count);
+
+    // Получение списка присутствующих термометров
+    AT32_MC_Get_Values_Termometers(thermos, sizeof(thermos));
+    //arrprint8(thermos, sizeof(thermos));
+
+    // Объединение списков в массив StructMC_UnitParam_t
+    int unit_count = 0;
+    for (int i = 0; i < perm_count; i++)
+    {
+        // Проверяем валидность перманентного ID
+        if (unit_count >= THERMO_UNITS_MAX)
+        {
+            logI("Too many permanent thermometers");
+            break;
+        }
+
+        therm_list[unit_count].onewire_addr = perm_ids[i];
+        therm_list[unit_count].permanent = true;
+
+        // Попытка получить имя термометра
+        S_MC_Get_Title_Thermometer(perm_ids[i], therm_list[unit_count].title, sizeof(therm_list[unit_count].title));
+        //logI("Found per thermometer '%s'", therm_list[unit_count].title);
+        therm_list[unit_count].parameter = S_MC_Get_Thermometer_Hysteresis(perm_ids[i]);
+        unit_count++;
+    }
+
+    for (int i = 0; i < THERMO_UNITS_MAX; i++)
+    {
+        if (!thermos[i].is_valid || unit_count >= THERMO_UNITS_MAX)
+        {
+            //logI("Term %d is not valid", i);
+            continue;
+        }
+
+        // Проверяем, есть ли уже такой термометр в массиве
+        bool duplicate = false;
+        for (int j = 0; j < unit_count; j++)
+        {
+            if (therm_list[j].onewire_addr == thermos[i].onewire_addr)
+            {
+                duplicate = true;
+                //logI("Duplicate thermometer %llX", thermos[i].onewire_addr);
+                break;
+            }
+        }
+        if (duplicate)
+            continue;
+
+        therm_list[unit_count].onewire_addr = thermos[i].onewire_addr;
+        therm_list[unit_count].present = thermos[i].present;
+        therm_list[unit_count].is_valid = true;
+        therm_list[unit_count].parameter = S_MC_Get_Thermometer_Hysteresis(thermos[i].onewire_addr);
+
+        // Попытка получить имя термометра
+        S_MC_Get_Title_Thermometer(thermos[i].onewire_addr, therm_list[unit_count].title, sizeof(therm_list[unit_count].title));
+        //logI("Found cur thermometer '%s' on ", therm_list[unit_count].title);
+        unit_count++;
+    }
+
+    *out_size = len;
+    return 0;
+}
+
+/**
+ * @brief Пример: запись "MC_TITLES"
+ */
+// static int param_mc_titles_write_fn(const uint8_t *in_data, size_t in_size)
+// {
+//     // Предположим, что принимаем C-строку, но не обязательно с завершающим нулём,
+//     // поэтому просто ограничим длину:
+//     if (in_size >= sizeof(g_mc_titles))
+//     {
+//         // Обрежем
+//         in_size = sizeof(g_mc_titles) - 1;
+//     }
+
+//     memcpy(g_mc_titles, in_data, in_size);
+//     // Добавляем нуль-терминатор, если нужно
+//     g_mc_titles[in_size] = '\0';
+
+//     return 0; // успех
+// }
+
+/**
+ * @brief Таблица параметров для данного проекта
+ *
+ * Здесь указываем (message_type, read_fn, write_fn) для каждого параметра.
+ */
+static const w_param_descriptor_t s_project_param_table[] =
+{
+    {
+        .message_type = W_MSG_TYPE_PARAM_TIME,
+        .read_fn      = param_time_read_fn,
+        .write_fn     = NULL
+    },
+    {
+        .message_type = W_MSG_TYPE_PARAM_MC_CONFIG,
+        .read_fn      = param_mc_config_read_fn,
+        .write_fn     = NULL
+    },
+    {
+        .message_type = W_MSG_TYPE_PARAM_MC_TITLES_IO,
+        .read_fn      = param_mc_titles_io_read_fn,
+        .write_fn     = NULL
+    },
+    {
+        .message_type = W_MSG_TYPE_PARAM_MC_TITLES_THERMO,
+        .read_fn      = param_mc_titles_thermo_read_fn,
+        .write_fn     = NULL
+    },
+    {
+        .message_type = W_MSG_TYPE_PARAM_MC_TITLES_RELAY,
+        .read_fn      = param_mc_titles_relay_read_fn,
+        .write_fn     = NULL
+    },
+    // при необходимости добавляйте другие параметры
+};
+
+void Wireless_Params_Init(void)
+{
+    // Инициализируем библиотеку параметров нашим реестром
+    w_param_init(s_project_param_table,
+                 sizeof(s_project_param_table) / sizeof(s_project_param_table[0]));
+
+    // Запускаем механизм приёма/обработки
+    w_param_start();
+}

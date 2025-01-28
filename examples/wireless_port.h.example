@@ -1,0 +1,16 @@
+/**
+ * @file wireless_port.h
+ * @brief Порт библиотеки wireless_lib для ESP32 для разрешения различий между проектами
+ * @date 2025-01-18
+ * @author pavel
+ */
+
+#ifndef WIRELESS_PORT_H
+#define WIRELESS_PORT_H
+
+#include "settings_sharing.h"
+
+#define W_CHAN_SENSORS_RECEIVE_QUEUE_SIZE 1
+#define W_CHAN_SENSORS_SEND_QUEUE_SIZE 5
+
+#endif /* WIRELESS_PORT_H */
