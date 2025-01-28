@@ -353,7 +353,9 @@ static uint32_t rdt_calc_crc(const rdt_packet_t *pkt)
 
 static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t *pkt, const uint8_t *src_mac)
 {
-    //heap_caps_check_integrity_all(true);
+    if (channel_idx >= RDT_MAX_CHANNELS) return;
+    if (s_channels[channel_idx].tx_queue == NULL || s_channels[channel_idx].tx_queue_length == 0 || s_channels[channel_idx].rx_queue == NULL) return;
+    
     // Проверяем CRC
     uint32_t calc_crc = rdt_calc_crc(pkt);
     if (calc_crc != pkt->crc)
@@ -475,7 +477,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             //logI("Recv block %d bytes from channel %d", completed_block.data_size, channel_idx);
             if(pdTRUE != xQueueSend(ch->rx_queue, &completed_block, 0))
             {
-                logE("rx_queue full!");
+                logE("rx_queue full on channel %d!", channel_idx);
                 free(rx->rx_buffer);
             }
             esp_event_post_to(W_event_loop, WIRELESS_EVENT_BASE, channel_idx, NULL, 0, 0);
@@ -575,10 +577,13 @@ static void rdt_process_tx_channel(uint8_t channel_idx)
     rdt_channel_t    *ch = &s_channels[channel_idx];
     rdt_channel_tx_t *tx = &ch->tx_ctrl;
 
+    // Init check
+    if (ch->tx_queue == NULL || ch->tx_queue_length == 0 || ch->rx_queue == NULL) return;
+
     if (!tx->sending)
     {
         // Проверяем, есть ли задача передать блок
-        if (uxQueueMessagesWaiting(ch->tx_queue) > 0)
+        if (ch->tx_queue && uxQueueMessagesWaiting(ch->tx_queue) > 0)
         {
             rdt_block_item_t block_item;
             if (xQueueReceive(ch->tx_queue, &block_item, 0) == pdTRUE)
@@ -869,6 +874,7 @@ int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *u
 {
     if (channel >= RDT_MAX_CHANNELS) return 1;
     if (!data_ptr || size == 0) return 1;
+    
     // if(!heap_caps_check_addr(data_ptr))
     // {
     //     logE("data_ptr not in heap!");
@@ -877,6 +883,8 @@ int Rdt_SendBlock(uint8_t channel, const uint8_t *data_ptr, size_t size, void *u
     //heap_caps_check_integrity_all(true);
 
     rdt_channel_t *ch = &s_channels[channel];
+
+    if (ch->tx_queue == NULL) return 1;
 
     rdt_block_item_t item;
     item.data_ptr  = (uint8_t*)data_ptr; // ВНИМАНИЕ: передаём владение!
@@ -992,7 +1000,7 @@ int Wireless_Rssi_Get(void)
 
 float Wireless_Error_Rate_Get(u8 *score)
 {
-    logI("total_packets_sent/resent: %"PRIu32"/%"PRIu32", %s", rssi.total_packets_sent, rssi.total_packets_resent, rssi.is_connected?"connected":"disconnected");
+    logD("total_packets_sent/resent: %"PRIu32"/%"PRIu32", %s", rssi.total_packets_sent, rssi.total_packets_resent, rssi.is_connected?"connected":"disconnected");
 
     check_connection_status();
     update_link_quality_score();

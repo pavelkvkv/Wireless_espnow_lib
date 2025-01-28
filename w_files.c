@@ -123,6 +123,11 @@ int w_files_list(const char *directory,
 		if (return_code) *return_code = W_FILES_ERR_INTERNAL;
 		return -1;
 	}
+	// Add last slash
+	if (directory[strlen(directory) - 1] != '/') 
+	{
+		strcat(directory, "/");
+	}
 	return w_files_send_request_blocking(W_FILES_CMD_LIST,
 										 directory,
 										 0, // offset=0 (не важно для LIST)
