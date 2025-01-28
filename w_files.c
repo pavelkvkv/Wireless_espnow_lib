@@ -18,8 +18,6 @@
 #define TAG "w_files"
 #include "../../main/include/log.h"
 
-
-
 // Глобальные/статические переменные для блокирующей логики:
 static bool g_initialized				= false;
 static bool g_request_in_progress		= false;
@@ -30,8 +28,8 @@ static uint16_t g_current_request_id	= 0; // ID активного запрос�
 
 // Буферы для получения ответа
 static uint8_t g_resp_return_code = 0xFF;
-static uint8_t g_resp_buffer[W_FILES_MAX_DATA]; // сюда копируем данные из ответа
-static size_t g_resp_data_len = 0;				// фактический объём в g_resp_buffer
+static uint8_t *g_resp_buffer	  = NULL; // сюда копируем данные из ответа
+static size_t g_resp_data_len	  = 0;	  // фактический объём в g_resp_buffer
 
 // Вспомогательные forward-декларации
 static void w_files_receive_cb(void *handler_arg,
@@ -56,15 +54,14 @@ static int w_files_send_request_blocking(uint8_t command,
 /**
  * Функции-врапперы из порта
  */
-extern int w_port_filelist_get(const char * dirpath, u8 * buffer);
-extern FILE* w_port_fopen(const char* filename, const char* mode);
-extern size_t w_port_fread(void* ptr, size_t size, size_t count, FILE* stream);
-extern size_t w_port_fwrite(const void* ptr, size_t size, size_t count, FILE* stream);
-extern int w_port_fclose(FILE* stream);
-extern int w_port_fseek(FILE* stream, long offset, int whence);
-extern long w_port_ftell(FILE* stream);
-extern void w_port_rewind(FILE* stream);
-
+extern int w_port_filelist_get(const char *directory, uint8_t *resp_data, size_t *out_data_length);
+extern FILE *w_port_fopen(const char *filename, const char *mode);
+extern size_t w_port_fread(void *ptr, size_t size, size_t count, FILE *stream);
+extern size_t w_port_fwrite(const void *ptr, size_t size, size_t count, FILE *stream);
+extern int w_port_fclose(FILE *stream);
+extern int w_port_fseek(FILE *stream, long offset, int whence);
+extern long w_port_ftell(FILE *stream);
+extern void w_port_rewind(FILE *stream);
 
 // ----------------------------------------------------------------
 // Инициализация / Деинициализация
@@ -303,12 +300,28 @@ static int w_files_send_request_blocking(uint8_t command,
 		return -7;
 	}
 
-	free(packet);
+	// free(packet);
 
 	// Готовимся принять ответ
 	g_resp_return_code = 0xFF;
 	g_resp_data_len	   = 0;
-	memset(g_resp_buffer, 0, sizeof(g_resp_buffer));
+	// if (g_resp_buffer == NULL) g_resp_buffer = (uint8_t *)malloc(W_FILES_MAX_DATA);
+	// if(!g_resp_buffer)
+	// {
+	// 	logE("Enomem");
+	// 	g_request_in_progress = false;
+	// 	xSemaphoreGive(g_mutex);
+	// 	if (return_code) *return_code = W_FILES_ERR_INTERNAL;
+	// 	return -7;
+	// }
+	// memset(g_resp_buffer, 0, W_FILES_MAX_DATA);
+
+	// Если ранее был выделен буфер, освобождаем его
+	if (g_resp_buffer)
+	{
+		free(g_resp_buffer);
+		g_resp_buffer = NULL;
+	}
 
 	// Ждём ответа или таймаута
 	if (xSemaphoreTake(g_response_sem, wait_ticks) == pdTRUE)
@@ -433,9 +446,15 @@ static void w_files_process_request(const w_files_header_t *hdr_in, size_t packe
 		return_code = W_FILES_ERR_TOOLARGE;
 	}
 
-	// Для формирования ответа
-	uint8_t resp_buf[W_FILES_MAX_PACKET_SIZE];
-	memset(resp_buf, 0, sizeof(resp_buf));
+	// Для формирования ответа будем динамически выделять буфер
+	size_t resp_packet_size = sizeof(w_files_header_t) + W_FILES_MAX_DATA;
+	uint8_t *resp_buf		= (uint8_t *)malloc(resp_packet_size);
+	if (!resp_buf)
+	{
+		// Не удалось выделить память для ответа
+		return;
+	}
+	memset(resp_buf, 0, resp_packet_size);
 
 	w_files_header_t *hdr_out = (w_files_header_t *)resp_buf;
 	hdr_out->command		  = command + 1; // например, LIST -> LIST_RESP (договорённость)
@@ -449,7 +468,12 @@ static void w_files_process_request(const w_files_header_t *hdr_in, size_t packe
 	if (return_code != W_FILES_OK)
 	{
 		size_t resp_size = sizeof(w_files_header_t);
-		Rdt_SendBlock(W_CHAN_FILES, resp_buf, resp_size, NULL);
+		int ret			 = Rdt_SendBlock(W_CHAN_FILES, resp_buf, resp_size, NULL);
+		if (ret != 0)
+		{
+			// Ошибка отправки, освобождаем память
+			free(resp_buf);
+		}
 		return;
 	}
 
@@ -461,60 +485,27 @@ static void w_files_process_request(const w_files_header_t *hdr_in, size_t packe
 	// Выполняем действие
 	if (command == W_FILES_CMD_LIST)
 	{
-		// 1) Открыть каталог, собрать список
-		// 2) Записать в data ответа
+		// Получаем список файлов с помощью портируемой функции
+		// 1) Указатель на заголовок и на начало области данных
+		w_files_header_t *hdr_out = (w_files_header_t *)resp_buf;
+		u8 *resp_data			  = (u8 *)(resp_buf + sizeof(w_files_header_t));
 
-        return_code = w_port_filelist_get(path_buf, resp_buf);
-		// DIR *dir = opendir(path_buf);
-		// if (!dir)
-		// {
-		// 	return_code = W_FILES_ERR_NOFILE;
-		// }
-		// else
-		// {
-		// 	// Записываем в resp_data "имя_файла\tразмер\n" (текстом)
-		// 	// Для простоты — один общий буфер
-		// 	char *resp_data		 = (char *)(resp_buf + sizeof(w_files_header_t));
-		// 	size_t resp_data_cap = W_FILES_MAX_DATA;
-		// 	size_t resp_offset	 = 0;
-
-		// 	struct dirent *ent;
-		// 	while ((ent = readdir(dir)) != NULL)
-		// 	{
-		// 		// Узнаём размер
-		// 		struct stat st;
-		// 		char fullpath[256 + W_FILES_MAX_PATH + 1];
-		// 		snprintf(fullpath, sizeof(fullpath), "%s/%s", path_buf, ent->d_name);
-		// 		if (stat(fullpath, &st) == 0)
-		// 		{
-		// 			// Формируем строку "filename\tfilesize\n"
-		// 			char line[300];
-		// 			int len_line = snprintf(line, sizeof(line), "%s\t%" PRIu64 "\n",
-		// 									ent->d_name, (uint64_t)st.st_size);
-		// 			// Проверим, влезет ли
-		// 			if (resp_offset + len_line < resp_data_cap)
-		// 			{
-		// 				memcpy(resp_data + resp_offset, line, len_line);
-		// 				resp_offset += len_line;
-		// 			}
-		// 			else
-		// 			{
-		// 				// Список не влез — можем вернуть ошибку или частичный список
-		// 				return_code = W_FILES_ERR_TOOLARGE;
-		// 				break;
-		// 			}
-		// 		}
-		// 	}
-		// 	closedir(dir);
-
-		// 	if (return_code == W_FILES_OK)
-		// 	{
-		// 		hdr_out->data_length = resp_offset;
-		// 	}
-		// }
+		// Функция должна заполнить resp_buf после заголовка и установить data_length
+		size_t len	= W_FILES_MAX_DATA;
+		return_code = w_port_filelist_get(path_buf, resp_data, &len);
+		if (return_code != W_FILES_OK)
+		{
+			// Если произошла ошибка, данные не важны
+			hdr_out->data_length = 0;
+		}
+		else
+		{
+			hdr_out->data_length = len;
+		}
 	}
 	else if (command == W_FILES_CMD_READ)
 	{
+		logI("Read req from %s size %d", path_buf, (int)data_len);
 		// Открываем файл, w_port_fseek(offset), читаем <= W_FILES_MAX_DATA
 		FILE *f = w_port_fopen(path_buf, "rb");
 		if (!f)
@@ -525,18 +516,32 @@ static void w_files_process_request(const w_files_header_t *hdr_in, size_t packe
 		{
 			if (hdr_in->offset != 0xFFFFFFFF)
 			{
-				w_port_fseek(f, hdr_in->offset, SEEK_SET);
+				if (w_port_fseek(f, hdr_in->offset, SEEK_SET) != 0)
+				{
+					return_code = W_FILES_ERR_IO;
+				}
 			}
-			// Считываем data_length, но не более W_FILES_MAX_DATA
-			size_t len_to_read = (data_len > 0) ? data_len : W_FILES_MAX_DATA;
-			if (len_to_read > W_FILES_MAX_DATA)
+			if (return_code == W_FILES_OK)
 			{
-				len_to_read = W_FILES_MAX_DATA;
+				// Считываем data_length, но не более W_FILES_MAX_DATA
+				size_t len_to_read = (data_len > 0) ? data_len : W_FILES_MAX_DATA;
+				if (len_to_read > W_FILES_MAX_DATA)
+				{
+					len_to_read = W_FILES_MAX_DATA;
+				}
+				size_t read_bytes	 = w_port_fread(resp_buf + sizeof(w_files_header_t), 1, len_to_read, f);
+				hdr_out->data_length = (uint32_t)read_bytes;
+				if (read_bytes < len_to_read && ferror(f))
+				{
+					return_code = W_FILES_ERR_IO;
+				}
+				w_port_fclose(f);
 			}
-			uint8_t *resp_data	 = resp_buf + sizeof(w_files_header_t);
-			size_t read_bytes	 = w_port_fread(resp_data, 1, len_to_read, f);
-			hdr_out->data_length = (uint32_t)read_bytes;
-			w_port_fclose(f);
+			else
+			{
+				// Закрываем файл в случае ошибки
+				w_port_fclose(f);
+			}
 		}
 	}
 	else if (command == W_FILES_CMD_WRITE)
@@ -568,14 +573,21 @@ static void w_files_process_request(const w_files_header_t *hdr_in, size_t packe
 		{
 			if (hdr_in->offset != 0xFFFFFFFF)
 			{
-				w_port_fseek(f, hdr_in->offset, SEEK_SET);
+				if (w_port_fseek(f, hdr_in->offset, SEEK_SET) != 0)
+				{
+					return_code = W_FILES_ERR_IO;
+				}
 			}
-			size_t written = w_port_fwrite(p_data, 1, data_len, f);
-			w_port_fclose(f);
-			if (written < data_len)
+			if (return_code == W_FILES_OK)
 			{
-				return_code = W_FILES_ERR_IO;
+				size_t written = w_port_fwrite(p_data, 1, data_len, f);
+				if (written < data_len)
+				{
+					return_code = W_FILES_ERR_IO;
+				}
+				hdr_out->data_length = 0; // для WRITE_RESP обычно нет данных
 			}
+			w_port_fclose(f);
 		}
 	}
 	else
@@ -589,7 +601,12 @@ static void w_files_process_request(const w_files_header_t *hdr_in, size_t packe
 	size_t total_resp_size = sizeof(w_files_header_t) + hdr_out->data_length;
 
 	// Отправляем ответ
-	Rdt_SendBlock(W_CHAN_FILES, resp_buf, total_resp_size, NULL);
+	int ret = Rdt_SendBlock(W_CHAN_FILES, resp_buf, total_resp_size, NULL);
+	if (ret != 0)
+	{
+		// Ошибка отправки, освобождаем память
+		free(resp_buf);
+	}
 }
 
 // ----------------------------------------------------------------
@@ -612,18 +629,37 @@ static void w_files_process_response(const w_files_header_t *hdr_in, size_t pack
 	size_t data_len		  = hdr_in->data_length;
 	const uint8_t *p_data = (const uint8_t *)(hdr_in + 1);
 
-	if (sizeof(*hdr_in) + data_len <= packet_size)
+	// Проверяем, что пакет содержит достаточно данных
+	if (sizeof(*hdr_in) + data_len > packet_size)
 	{
-		// Копируем не более W_FILES_MAX_DATA в g_resp_buffer
-		size_t to_copy = (data_len <= W_FILES_MAX_DATA) ? data_len : W_FILES_MAX_DATA;
-		memcpy(g_resp_buffer, p_data, to_copy);
-		g_resp_data_len = to_copy;
+		// Некорректный пакет
+		g_resp_return_code = W_FILES_ERR_INTERNAL;
+		g_resp_data_len	   = 0;
 	}
 	else
 	{
-		// Неполный/битый пакет?
-		g_resp_return_code = W_FILES_ERR_INTERNAL;
-		g_resp_data_len	   = 0;
+		// Выделяем память для ответа
+		if (data_len > 0)
+		{
+			g_resp_buffer = (uint8_t *)malloc(data_len);
+			if (g_resp_buffer)
+			{
+				memcpy(g_resp_buffer, p_data, data_len);
+				g_resp_data_len = data_len;
+			}
+			else
+			{
+				// Не удалось выделить память
+				g_resp_return_code = W_FILES_ERR_INTERNAL;
+				g_resp_data_len	   = 0;
+			}
+		}
+		else
+		{
+			// Нет данных
+			g_resp_buffer	= NULL;
+			g_resp_data_len = 0;
+		}
 	}
 
 	// Снимаем задачу с блокировки (освобождаем семафор)
