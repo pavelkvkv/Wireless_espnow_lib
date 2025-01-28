@@ -1,6 +1,6 @@
 # Description
 
-This is a library for a reliable transfer of not very large data on the ESP NOU protocol. It contains a number of opportunities that the original protocol does not have: 
+This is a library for a reliable transfer of not very large data on the ESP-NOW protocol. It contains a number of opportunities that the original protocol does not have: 
 - Request and write parameters (integers, blobs, strings) with flexible wrapping for your needs (look in examples/wireless_params.c)
 - Read and write files in one-function manner, request file lists (look for io wrappers in examples/wireless_port.h)
 - Unicast data feeding and receiving (look in examples/wireless_feed.c)
