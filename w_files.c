@@ -206,160 +206,145 @@ int w_files_write(const char *path,
  * @return 0 при успешном получении ответа, иначе ошибка/таймаут.
  */
 static int w_files_send_request_blocking(uint8_t command,
-										 const char *path,
-										 uint32_t offset,
-										 const uint8_t *data,
-										 size_t data_len,
-										 uint8_t *out_data,
-										 size_t *inout_size,
-										 TickType_t wait_ticks,
-										 uint8_t *return_code)
+                                         const char *path,
+                                         uint32_t offset,
+                                         const uint8_t *data,
+                                         size_t data_len,
+                                         uint8_t *out_data,
+                                         size_t *inout_size,
+                                         TickType_t wait_ticks,
+                                         uint8_t *return_code)
 {
-	if (!g_initialized)
-	{
-		if (return_code) *return_code = W_FILES_ERR_INTERNAL;
-		return -1;
-	}
+    if (!g_initialized)
+    {
+        if (return_code)            *return_code = W_FILES_ERR_INTERNAL;
+        return -1;
+    }
 
-	// Блокируем мьютекс
-	if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(2000)) != pdTRUE)
-	{
-		// Не смогли взять мьютекс
-		if (return_code) *return_code = W_FILES_ERR_INTERNAL;
-		return -2;
-	}
+    // Блокируем мьютекс
+    if (xSemaphoreTake(g_mutex, pdMS_TO_TICKS(2000)) != pdTRUE)
+    {
+        if (return_code)            *return_code = W_FILES_ERR_INTERNAL;
+        return -2;
+    }
 
-	if (g_request_in_progress)
-	{
-		// Уже идёт запрос
-		xSemaphoreGive(g_mutex);
-		if (return_code) *return_code = W_FILES_ERR_INTERNAL;
-		return -3;
-	}
-	g_request_in_progress = true;
+    if (g_request_in_progress)
+    {
+        xSemaphoreGive(g_mutex);
+        if (return_code)            *return_code = W_FILES_ERR_INTERNAL;
+        return -3;
+    }
+    g_request_in_progress = true;
 
-	// Сформируем пакет
-	size_t path_len = strlen(path);
-	if (path_len > W_FILES_MAX_PATH)
-	{
-		// Превышена максимально допустимая длина пути
-		g_request_in_progress = false;
-		xSemaphoreGive(g_mutex);
-		if (return_code) *return_code = W_FILES_ERR_TOOLARGE;
-		return -4;
-	}
-	if (data_len > W_FILES_MAX_DATA)
-	{
-		g_request_in_progress = false;
-		xSemaphoreGive(g_mutex);
-		if (return_code) *return_code = W_FILES_ERR_TOOLARGE;
-		return -5;
-	}
+    // Определяем длину пути и проверяем её
+    size_t path_len = strlen(path);
+    if (path_len > W_FILES_MAX_PATH)
+    {
+        g_request_in_progress = false;
+        xSemaphoreGive(g_mutex);
+        if (return_code)            *return_code = W_FILES_ERR_TOOLARGE;
+        return -4;
+    }
+    // Если команда чтения, а data == NULL и data_len == 0, берем запрашиваемый размер из inout_size
+    if (command == W_FILES_CMD_READ && data == NULL && data_len == 0 && inout_size != NULL)
+    {
+        data_len = (*inout_size > W_FILES_MAX_DATA) ? W_FILES_MAX_DATA : *inout_size;
+    }
+    if (data_len > W_FILES_MAX_DATA)
+    {
+        g_request_in_progress = false;
+        xSemaphoreGive(g_mutex);
+        if (return_code)            *return_code = W_FILES_ERR_TOOLARGE;
+        return -5;
+    }
 
-	// Увеличиваем счётчик request_id
-	g_current_request_id = g_next_request_id++;
-	if (g_next_request_id == 0)
-	{
-		g_next_request_id = 1; // не даём ему уйти в 0
-	}
+    // Увеличиваем счётчик request_id
+    g_current_request_id = g_next_request_id++;
+    if (g_next_request_id == 0)
+    {
+        g_next_request_id = 1;
+    }
 
-	// Подготовим буфер
-	size_t packet_size = sizeof(w_files_header_t) + path_len + data_len;
-	uint8_t *packet	   = (uint8_t *)malloc(packet_size);
-	if (!packet)
-	{
-		g_request_in_progress = false;
-		xSemaphoreGive(g_mutex);
-		if (return_code) *return_code = W_FILES_ERR_INTERNAL;
-		return -6;
-	}
-	memset(packet, 0, packet_size);
+    // Подготовим пакет: заголовок + путь + (если есть) данные
+    size_t packet_size = sizeof(w_files_header_t) + path_len + data_len;
+    uint8_t *packet = (uint8_t *)malloc(packet_size);
+    if (!packet)
+    {
+        g_request_in_progress = false;
+        xSemaphoreGive(g_mutex);
+        if (return_code)            *return_code = W_FILES_ERR_INTERNAL;
+        return -6;
+    }
+    memset(packet, 0, packet_size);
 
-	w_files_header_t *hdr = (w_files_header_t *)packet;
-	hdr->command		  = command;
-	hdr->return_code	  = 0;
-	hdr->request_id		  = g_current_request_id;
-	hdr->offset			  = offset;
-	hdr->data_length	  = data_len;
-	hdr->path_length	  = (uint8_t)path_len;
+    w_files_header_t *hdr = (w_files_header_t *)packet;
+    hdr->command = command;
+    hdr->return_code = 0;
+    hdr->request_id = g_current_request_id;
+    hdr->offset = offset;
+    hdr->data_length = data_len;
+    hdr->path_length = (uint8_t)path_len;
 
-	// Копируем path и data
-	memcpy(packet + sizeof(w_files_header_t), path, path_len);
-	if (data_len > 0 && data)
-	{
-		memcpy(packet + sizeof(w_files_header_t) + path_len, data, data_len);
-	}
+    // Копируем путь
+    memcpy(packet + sizeof(w_files_header_t), path, path_len);
+    // Если переданы данные (например, для записи), копируем их
+    if (data_len > 0 && data)
+    {
+        memcpy(packet + sizeof(w_files_header_t) + path_len, data, data_len);
+    }
 
-	// Очистим семафор перед отправкой
-	xSemaphoreTake(g_response_sem, 0);
+    // Сброс семафора перед отправкой
+    xSemaphoreTake(g_response_sem, 0);
 
-	// Отправляем
-	int ret_send = Rdt_SendBlock(W_CHAN_FILES, packet, packet_size, NULL);
-	if (ret_send != 0)
-	{
-		// Ошибка при отправке
-		free(packet);
-		g_request_in_progress = false;
-		xSemaphoreGive(g_mutex);
-		if (return_code) *return_code = W_FILES_ERR_INTERNAL;
-		return -7;
-	}
+    // Отправляем пакет; Rdt_SendBlock сам возьмёт на себя владение памятью, если ret_send == 0
+    int ret_send = Rdt_SendBlock(W_CHAN_FILES, packet, packet_size, NULL);
+    if (ret_send != 0)
+    {
+        free(packet);
+        g_request_in_progress = false;
+        xSemaphoreGive(g_mutex);
+        if (return_code)            *return_code = W_FILES_ERR_INTERNAL;
+        return -7;
+    }
 
-	// free(packet);
+    // Подготавливаем переменные для получения ответа
+    g_resp_return_code = 0xFF;
+    g_resp_data_len = 0;
+    if (g_resp_buffer)
+    {
+        free(g_resp_buffer);
+        g_resp_buffer = NULL;
+    }
 
-	// Готовимся принять ответ
-	g_resp_return_code = 0xFF;
-	g_resp_data_len	   = 0;
-	// if (g_resp_buffer == NULL) g_resp_buffer = (uint8_t *)malloc(W_FILES_MAX_DATA);
-	// if(!g_resp_buffer)
-	// {
-	// 	logE("Enomem");
-	// 	g_request_in_progress = false;
-	// 	xSemaphoreGive(g_mutex);
-	// 	if (return_code) *return_code = W_FILES_ERR_INTERNAL;
-	// 	return -7;
-	// }
-	// memset(g_resp_buffer, 0, W_FILES_MAX_DATA);
-
-	// Если ранее был выделен буфер, освобождаем его
-	if (g_resp_buffer)
-	{
-		free(g_resp_buffer);
-		g_resp_buffer = NULL;
-	}
-
-	// Ждём ответа или таймаута
-	if (xSemaphoreTake(g_response_sem, wait_ticks) == pdTRUE)
-	{
-		// Ответ получен
-		if (return_code)
-		{
-			*return_code = g_resp_return_code;
-		}
-		// Копируем данные, если нужно
-		if (out_data && inout_size)
-		{
-			size_t to_copy = (g_resp_data_len <= *inout_size) ? g_resp_data_len : *inout_size;
-			memcpy(out_data, g_resp_buffer, to_copy);
-			*inout_size = to_copy;
-		}
-		// Сбрасываем
-		g_request_in_progress = false;
-		xSemaphoreGive(g_mutex);
-		return 0; // Успех (получили ответ)
-	}
-	else
-	{
-		// Таймаут
-		if (return_code)
-		{
-			*return_code = W_FILES_ERR_INTERNAL; // Можно завести отдельный код W_FILES_ERR_TIMEOUT
-		}
-		g_request_in_progress = false;
-		xSemaphoreGive(g_mutex);
-		return -8;
-	}
+    // Ожидаем ответа или таймаут
+    if (xSemaphoreTake(g_response_sem, wait_ticks) == pdTRUE)
+    {
+        if (return_code)
+        {
+            *return_code = g_resp_return_code;
+        }
+        if (out_data && inout_size)
+        {
+            size_t to_copy = (g_resp_data_len <= *inout_size) ? g_resp_data_len : *inout_size;
+            memcpy(out_data, g_resp_buffer, to_copy);
+            *inout_size = to_copy;
+        }
+        g_request_in_progress = false;
+        xSemaphoreGive(g_mutex);
+        return 0;
+    }
+    else
+    {
+        if (return_code)
+        {
+            *return_code = W_FILES_ERR_INTERNAL;
+        }
+        g_request_in_progress = false;
+        xSemaphoreGive(g_mutex);
+        return -8;
+    }
 }
+
 
 // ----------------------------------------------------------------
 // Колбэк приёма на канале W_CHAN_FILES

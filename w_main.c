@@ -730,7 +730,7 @@ static void check_connection_status(void)
     if ((now - rssi.last_rssi_update) > (RSSI_TIMEOUT) || rssi.last_rssi_update == 0) 
     {
         rssi.is_connected = false;  // Клиент не отвечает
-        logI("dis due to now=%"PRId64", last_rssi_update=%"PRId64, now, rssi.last_rssi_update);
+        //logI("dis due to now=%"PRId64", last_rssi_update=%"PRId64, now, rssi.last_rssi_update);
     }
     else
     {
