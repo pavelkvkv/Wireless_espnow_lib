@@ -36,12 +36,13 @@ enum
     W_MSG_TYPE_SENSORS_THERMO   = 12,       // Рассылка данных термометров
 
     /* Чтение-запись параметров */
-    W_MSG_TYPE_PARAM_TIME       = 20,           // Время (time_t)
-    W_MSG_TYPE_PARAM_MC_CONFIG  = 21,           // Конфигурация МС (StructMC_Config_t)
-    W_MSG_TYPE_PARAM_MC_TITLES_IO  = 22,        // Названия контактов
-    W_MSG_TYPE_PARAM_MC_TITLES_RELAY  = 23,     // Названия реле
-    W_MSG_TYPE_PARAM_MC_TITLES_THERMO  = 24,    // Названия термометров
-    W_MSG_TYPE_PARAM_DISP_FWVER  = 25,          // Версия прошивки дисплея
+    W_MSG_TYPE_PARAM_TIME               = 20,    // Время (time_t)
+    W_MSG_TYPE_PARAM_MC_CONFIG          = 21,    // Конфигурация МС (StructMC_Config_t)
+    W_MSG_TYPE_PARAM_MC_TITLES_IO       = 22,    // Названия контактов
+    W_MSG_TYPE_PARAM_MC_TITLES_RELAY    = 23,    // Названия реле
+    W_MSG_TYPE_PARAM_MC_TITLES_THERMO   = 24,    // Названия термометров
+    W_MSG_TYPE_PARAM_DISP_FWVER         = 25,    // Версия прошивки дисплея
+    W_MSG_TYPE_PARAM_RULES              = 26,    // Правила MC
 };
 
 
