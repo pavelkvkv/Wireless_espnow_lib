@@ -43,6 +43,7 @@ enum
     W_MSG_TYPE_PARAM_MC_TITLES_THERMO   = 24,    // Названия термометров
     W_MSG_TYPE_PARAM_DISP_FWVER         = 25,    // Версия прошивки дисплея
     W_MSG_TYPE_PARAM_RULES              = 26,    // Правила MC
+    W_MSG_TYPE_PARAM_DIRECT_RELAY       = 27,    // Параметры прямого управления реле
 };
 
 
