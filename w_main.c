@@ -244,6 +244,12 @@ static void rdt_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *dat
         // Если данные некорректны, выходим
         return;
     }
+    
+    // проверка мака пира
+    if (memcmp(recv_info->src_addr, s_peer_macaddr, ESP_NOW_ETH_ALEN) != 0)
+    {
+        return;
+    }
 
     rssi.last_rssi_update = xTaskGetTickCount();
     rssi.rssi = recv_info->rx_ctrl->rssi;
