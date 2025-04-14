@@ -197,7 +197,7 @@ static void wireless_pairing_receive_cb(void *handler_arg, esp_event_base_t base
 
     if (id != W_CHAN_SYSTEM)
     {
-        logE("Invalid event ID: %"PRId32"", id);
+        logE("Invalid event ID: %" PRId32"", id);
         return;
     }
 

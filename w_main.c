@@ -513,7 +513,7 @@ static void rdt_process_received_packet(uint8_t channel_idx, const rdt_packet_t 
             tx->tx_buffer       = NULL;
             tx->sending         = false;
             //logI("Channel %d: block transmitted successfully", channel_idx);
-            logD("ask wait for %"PRId64" ms", (esp_timer_get_time() - tx->last_send_time) / 1000);
+            logD("ask wait for %" PRId64" ms", (esp_timer_get_time() - tx->last_send_time) / 1000);
         }
         break;
     }
@@ -736,7 +736,7 @@ static void check_connection_status(void)
     if ((now - rssi.last_rssi_update) > (RSSI_TIMEOUT) || rssi.last_rssi_update == 0) 
     {
         rssi.is_connected = false;  // Клиент не отвечает
-        //logI("dis due to now=%"PRId64", last_rssi_update=%"PRId64, now, rssi.last_rssi_update);
+        //logI("dis due to now=%" PRId64", last_rssi_update=%" PRId64, now, rssi.last_rssi_update);
     }
     else
     {
@@ -1000,13 +1000,13 @@ int Wireless_Rssi_Get(void)
     {
         return rssi.rssi;
     }
-    //logI("no rssi due to now=%"PRIu32", last_rssi_update=%"PRId64, xTaskGetTickCount(), rssi.last_rssi_update);
+    //logI("no rssi due to now=%" PRIu32", last_rssi_update=%" PRId64, xTaskGetTickCount(), rssi.last_rssi_update);
     return 0;
 }
 
 float Wireless_Error_Rate_Get(u8 *score)
 {
-    logD("total_packets_sent/resent: %"PRIu32"/%"PRIu32", %s", rssi.total_packets_sent, rssi.total_packets_resent, rssi.is_connected?"connected":"disconnected");
+    logD("total_packets_sent/resent: %" PRIu32"/%" PRIu32", %s", rssi.total_packets_sent, rssi.total_packets_resent, rssi.is_connected?"connected":"disconnected");
 
     check_connection_status();
     update_link_quality_score();
