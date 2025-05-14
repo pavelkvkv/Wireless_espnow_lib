@@ -21,7 +21,7 @@
 #include <stdio.h>
 
 #define TAG "w_param"
-#include "../../main/include/log.h"
+#include "log.h"
 
 
 /* ----------------------------------------------------------------

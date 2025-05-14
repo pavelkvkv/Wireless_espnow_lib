@@ -12,7 +12,7 @@
 #include "AT32_api.h"
 
 #define TAG "Wireless_Feed"
-#include "../../main/include/log.h"
+#include "log.h"
 
 static void wireless_feed_task(void *arg);
 

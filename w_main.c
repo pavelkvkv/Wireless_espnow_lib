@@ -148,7 +148,7 @@ static rssi_t rssi = {0};
 // ========================= Глобальные/статические переменные ==========================
 
 static const char *TAG = "rdt";
-#include "../../main/include/log.h"
+#include "log.h"
 
 /**
  * @brief Массив логических каналов

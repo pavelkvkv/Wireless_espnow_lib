@@ -10,7 +10,7 @@
 #include "w_user.h"
 #include "wireless_port.h"
 #define TAG "w_channels"
-#include "../../main/include/log.h"
+#include "log.h"
 
 //ESP_EVENT_DEFINE_BASE(WIRELESS_EVENT_BASE);
 

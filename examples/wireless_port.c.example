@@ -13,10 +13,10 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include "AT32_structs_MC.h"
-#include "../../main/include/global.h"
+#include "global.h"
 
 #define TAG "Wireless_Port"
-#include "../../main/include/log.h"
+#include "log.h"
 
 // Подключаем заголовки с описанием Secure_AT32_Reclist_Scan_*:
 #include "AT32_scan_controller.h"

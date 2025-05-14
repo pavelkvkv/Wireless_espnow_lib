@@ -17,7 +17,7 @@
 #include "AT32_structs_MC.h"
 
 #define TAG "Wireless_Params"
-#include "../../main/include/log.h"
+#include "log.h"
 
 /**
  * @brief чтение системного времени (параметр TIME)

@@ -16,7 +16,7 @@
 #include "wireless_port.h" // Wireless_Channel_Receive_Callback_Register
 
 #define TAG "w_files"
-#include "../../main/include/log.h"
+#include "log.h"
 
 // Глобальные/статические переменные для блокирующей логики:
 static bool g_initialized				= false;

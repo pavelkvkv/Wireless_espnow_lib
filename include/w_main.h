@@ -1,7 +1,7 @@
 #ifndef W_MAIN_H
 #define W_MAIN_H
 
-#include "../../main/include/my_types.h"
+#include "my_types.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_event.h"
 
